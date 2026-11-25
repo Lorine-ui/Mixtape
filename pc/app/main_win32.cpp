@@ -370,6 +370,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         auto r = pickFiles(hwnd, false, L"Песня\0*.mp3;*.m4a;*.flac;*.ogg;*.wav;*.aac\0Все файлы\0*.*\0", true, toWide(def));
         return r.empty() ? std::string() : r[0];
     };
+    pf.openUrl = [](const std::string& url) {
+        ShellExecuteW(nullptr, L"open", toWide(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    };
     pf.pickImage = [hwnd] {
         auto r = pickFiles(hwnd, false, L"Картинка или GIF\0*.gif;*.png;*.jpg;*.jpeg;*.bmp\0Все файлы\0*.*\0", false, L"");
         return r.empty() ? std::string() : r[0];

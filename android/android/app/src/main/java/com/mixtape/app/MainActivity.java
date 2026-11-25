@@ -162,6 +162,16 @@ public class MainActivity extends NativeActivity {
         });
     }
 
+    // открыть ссылку в браузере
+    static void openUrl(String url) {
+        inst.runOnUiThread(() -> {
+            try {
+                inst.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
     // выбор файлов: kind = audio | image | backup; файлы копируются во временную папку приложения
     static void pick(int id, String kind) {
         inst.runOnUiThread(() -> {

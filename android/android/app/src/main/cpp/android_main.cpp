@@ -368,6 +368,14 @@ mx::Platform makePlatform() {
         e->DeleteLocalRef(k);
         mxa::takeException(e);
     };
+    pf.openUrl = [](const std::string& url) {
+        JNIEnv* e = mxa::env();
+        static jmethodID m = staticMethod(e, "openUrl", "(Ljava/lang/String;)V");
+        jstring u = mxa::jstr(e, url);
+        e->CallStaticVoidMethod(mxa::activityClass(), m, u);
+        e->DeleteLocalRef(u);
+        mxa::takeException(e);
+    };
     pf.publishFile = [](const std::string& path, const std::string& kind) {
         JNIEnv* e = mxa::env();
         static jmethodID m = staticMethod(e, "publish", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");

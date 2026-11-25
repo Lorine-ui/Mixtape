@@ -449,6 +449,12 @@ void Ui::modalSettings(ImVec2 o, ImVec2 sz) {
             app_.toast("Путь скопирован");
         }
         y += 56;
+        head("ПОДДЕРЖАТЬ АВТОРА");
+        label("Поддержать на Patreon", "Mixtape бесплатный. Если нравится — можно сказать спасибо", 150);
+        if (pill("##donate", cd, ImVec2(x + w - 150, y + 6), ImVec2(150, 36), "Поддержать", true)) {
+            if (app_.platform.openUrl) app_.platform.openUrl("https://www.patreon.com/c/Mixtape696");
+        }
+        endRow();
         head("СТАТИСТИКА");
         label("Сбросить статистику", ("Сейчас: " + std::to_string(static_cast<long long>(app_.stats.totalSec() / 3600)) + " ч прослушано").c_str(), 130);
         if (pill("##statReset", cd, ImVec2(x + w - 130, y + 6), ImVec2(130, 36), "Сбросить"))

@@ -37,6 +37,7 @@ struct Platform {
     std::function<bool()> isFullscreen;
     std::function<void(int r, int g, int b)> setTitleBarColor;     // заголовок окна в цвет темы
     std::function<std::string(const std::string& defName)> pickSaveAudio;  // куда сохранить песню; пусто — отмена
+    std::function<void(const std::string&)> openUrl;                 // открыть ссылку в браузере
     std::function<std::string()> pickImage;                          // png/jpg/gif/bmp; пусто — отмена
 
     // ---- телефон (Android). На Windows не заданы, и приложение ведёт себя по-старому ----
