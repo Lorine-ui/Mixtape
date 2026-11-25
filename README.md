@@ -1,7 +1,32 @@
+<div align="center">
+
 # Mixtape
 
-Музыкальный плеер для **Windows** и **Android**: один поиск сразу по Audius, SoundCloud, Internet Archive и YouTube,
-офлайн-режим, аккаунт с синхронизацией между компьютером и телефоном, темы оформления и 10 языков интерфейса.
+**Бесплатный музыкальный плеер для Windows и Android — без рекламы и с открытым кодом**
+
+[![Скачать для Windows](https://img.shields.io/badge/Скачать-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.exe)
+[![Скачать для Android](https://img.shields.io/badge/Скачать-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.apk)
+
+[![Версия](https://img.shields.io/github/v/release/Lorine-ui/Mixtape?label=версия&color=e85d6c)](https://github.com/Lorine-ui/Mixtape/releases/latest)
+[![Скачивания](https://img.shields.io/github/downloads/Lorine-ui/Mixtape/total?label=скачиваний&color=8a5cf6)](https://github.com/Lorine-ui/Mixtape/releases)
+[![Лицензия MIT](https://img.shields.io/badge/лицензия-MIT-blue)](LICENSE)
+[![Patreon](https://img.shields.io/badge/Patreon-поддержать-F96854?logo=patreon&logoColor=white)](https://www.patreon.com/c/Mixtape696)
+
+<img src="docs/screenshots/home.jpg" alt="Главный экран Mixtape" width="860">
+
+</div>
+
+Один поиск сразу по Audius, SoundCloud, Internet Archive и YouTube, офлайн-режим, аккаунт с синхронизацией
+между компьютером и телефоном, темы оформления и 10 языков интерфейса.
+
+## Скриншоты
+
+| | |
+|---|---|
+| <img src="docs/screenshots/torn.jpg" alt="Тема «Разрыв»"> | <img src="docs/screenshots/halftone.jpg" alt="Тема «Полутон»"> |
+| Тема «Разрыв» | Тема «Полутон» |
+| <img src="docs/screenshots/spot.jpg" alt="Тема «Прожектор»"> | <img src="docs/screenshots/coral.jpg" alt="Настройки оформления"> |
+| Тема «Прожектор» | Настройки: 17 тем и любой цвет |
 
 ## Скачать
 
@@ -22,7 +47,7 @@
 - **Офлайн** — скачайте песню или сразу всю «Мою музыку» и слушайте без интернета. Можно добавлять свои MP3, FLAC, WAV.
 - **Аккаунт** — вход по почте; «Моя музыка», плейлисты и профиль одинаковые на компьютере и телефоне.
 - **Профиль** — аватарка, никнейм, «о себе», цвет и рамка.
-- **Оформление** — около 20 тем, включая узорные («Коралл», «Разрыв», «Полутон», «Прожектор»…); любую тему можно перекрасить,
+- **Оформление** — 17 тем, включая узорные («Коралл», «Разрыв», «Полутон», «Прожектор»…); любую тему можно перекрасить,
   затемнить фон, поменять размер текста, скругление углов и плотность списков.
 - **Тексты песен**, которые листаются в такт музыке, и свои тексты.
 - **Фрагменты** — вырезать любимый кусок песни или убрать лишний.
