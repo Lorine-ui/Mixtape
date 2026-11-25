@@ -78,3 +78,8 @@ cmake -S . -B b -DMX_BUILD_APP=OFF
 cmake --build b --config Release
 ctest --test-dir b -C Release
 ```
+
+## Лицензия
+
+Код распространяется по лицензии [MIT](LICENSE): его можно свободно использовать, изменять и распространять с указанием автора.
+Сторонние библиотеки, которые скачиваются при сборке (Dear ImGui, miniaudio, stb), — под своими лицензиями.
