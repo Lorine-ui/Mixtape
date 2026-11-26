@@ -32,8 +32,8 @@
 
 | Платформа | Файл | Требования |
 |---|---|---|
-| Windows | [**Mixtape.exe**](download/Mixtape.exe?raw=1) | Windows 10/11, 64-бит. Установка не нужна — просто запустите файл |
-| Android | [**Mixtape.apk**](download/Mixtape.apk?raw=1) | Android 10 или новее |
+| Windows | [**Mixtape.exe**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.exe) | Windows 10/11, 64-бит. Установка не нужна — просто запустите файл |
+| Android | [**Mixtape.apk**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.apk) | Android 10 или новее |
 
 **Windows:** при первом запуске SmartScreen может предупредить о неизвестном издателе (у программы нет платной цифровой подписи) —
 нажмите «Подробнее» → «Выполнить в любом случае».
@@ -68,7 +68,7 @@
 |---|---|
 | [`pc/`](pc) | Версия для Windows (C++17, Dear ImGui, DirectX 11, miniaudio, WinHTTP, Media Foundation) |
 | [`android/`](android) | Версия для Android (тот же C++ плюс OpenGL ES, NDK и небольшая обёртка на Java) |
-| [`download/`](download) | Готовые сборки |
+| [`download/`](download) | Копия готовых сборок (скачивать лучше со страницы [выпусков](https://github.com/Lorine-ui/Mixtape/releases/latest)) |
 
 ### Сборка для Windows
 
