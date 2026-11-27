@@ -38,6 +38,9 @@ struct Platform {
     std::function<void(int r, int g, int b)> setTitleBarColor;     // заголовок окна в цвет темы
     std::function<std::string(const std::string& defName)> pickSaveAudio;  // куда сохранить песню; пусто — отмена
     std::function<void(const std::string&)> openUrl;                 // открыть ссылку в браузере
+    // yt-dlp (только ПК): песни YouTube Music целиком. Не заданы — используется встроенный способ.
+    std::function<AudioBlob(const std::string& videoId, const ProgressFn&, const std::atomic<bool>*)> ytDlpFetch;
+    std::function<bool()> hasYtDlp;
     std::function<std::string()> pickImage;                          // png/jpg/gif/bmp; пусто — отмена
 
 };
@@ -118,8 +121,9 @@ public:
     void loadTrending();
 
     // ---- сообщения ----
-    void toast(const std::string& msg);
+    void toast(const std::string& msg, double seconds = 3.8);
     std::string toastText;
+    double toastLen = 3.8;  // сколько секунд показывается текущая надпись
     double toastUntil = 0;  // время приложения (App::now())
     double now() const;
 
@@ -239,7 +243,6 @@ private:
     void workerLoop();
     void onEnded();
     void startPlayback(const Track& t, int token);
-    AudioBlob obtainAudio(const Track& t, int token);
     void finishLoad(const Track& t, int token, const std::string& err);
     void maybePrefetch();
     std::string offlinePath(const Track& t, const std::string& ext) const;
@@ -279,7 +282,6 @@ private:
     std::atomic<int> loadToken_{0};
     std::atomic<int> searchToken_{0};
     std::atomic<int> lyToken_{0};
-    std::atomic<int> peakToken_{0};
     std::shared_ptr<std::atomic<bool>> cancelLoad_ = std::make_shared<std::atomic<bool>>(false);
     int fails_ = 0;
     bool dirty_ = false;

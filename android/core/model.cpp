@@ -10,7 +10,7 @@ const char* sourceLabel(const std::string& s) {
     if (s == "audius") return "Audius";
     if (s == "archive") return "Archive";
     if (s == "soundcloud") return "SoundCloud";
-    if (s == "youtube") return "YouTube";
+    if (s == "youtube") return "YouTube Music";
     if (s == "jamendo") return "Jamendo";
     return "";
 }

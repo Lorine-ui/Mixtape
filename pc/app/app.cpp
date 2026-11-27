@@ -95,6 +95,7 @@ bool App::init(std::string* err) {
     try {
         http_ = makeHttp();
         net_ = std::make_unique<Net>(*http_);
+        if (platform.ytDlpFetch) net_->ytExternal = platform.ytDlpFetch;
     } catch (const std::exception& ex) {
         if (err) *err = ex.what();
         return false;
@@ -183,9 +184,10 @@ void App::loadTrending() {
     });
 }
 
-void App::toast(const std::string& msg) {
+void App::toast(const std::string& msg, double seconds) {
     toastText = msg;
-    toastUntil = now() + 3.8;
+    toastLen = seconds;
+    toastUntil = now() + seconds;
 }
 
 void App::frame() {
@@ -447,11 +449,17 @@ void App::startPlayback(const Track& t, int token) {
                     if (t.source != "youtube") throw;
                     // YouTube не отдал звук: ищем ту же песню в других источниках
                     auto alt = net_->findAlternative(t, *snap);
-                    if (!alt) throw;
+                    const std::string why = net_->lastYtError();  // настоящая причина отказа yt-dlp (если он был)
+                    if (!alt) {
+                        if (why.empty()) throw;
+                        throw std::runtime_error("YouTube не отдал звук: " + why.substr(0, 200));
+                    }
                     Track a = *alt;
-                    post([this, a, token, t] {
+                    post([this, a, token, t, why] {
                         if (token != loadToken_) return;
-                        toast("YouTube не отдал звук, играю версию из «" + std::string(sourceLabel(a.source)) + "»");
+                        toast("YouTube не отдал звук, играю версию из «" + std::string(sourceLabel(a.source)) + "»" +
+                                  (why.empty() ? std::string() : "\n" + why.substr(0, 200)),
+                              why.empty() ? 3.8 : 9.0);
                         cache_[a.id] = a;
                         if (queue.index >= 0 && queue.index < static_cast<int>(queue.ids.size()) && queue.ids[static_cast<std::size_t>(queue.index)] == t.id)
                             queue.ids[static_cast<std::size_t>(queue.index)] = a.id;

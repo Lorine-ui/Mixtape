@@ -41,7 +41,6 @@ float hueDist(float from, float to);  // кратчайшая разность �
 // (нужен, чтобы выбрать шрифт по реальному размеру в пикселях).
 void setTextFonts(const Fonts& f);
 void setTextScale(float textScale, float uiScale);
-float textScale();
 void drawText(ImDrawList* dl, ImFont* f, float size, ImVec2 pos, ImU32 col, const std::string& s, float wrap = 0);
 ImVec2 measure(ImFont* f, float size, const std::string& s, float wrap = 0);
 std::string ellipsize(ImFont* f, float size, const std::string& s, float maxW);

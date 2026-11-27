@@ -45,7 +45,6 @@ public:
     std::vector<CutRef> cutList(const Track& cur) const;
     bool removeCut(const Track& cur, const CutRef& ref);
     Segment segmentFor(const Track& t) const;
-    int cutCount(const Track& t) const;
 
     // ---- плейлисты ----
     Playlist* playlist(const std::string& id);

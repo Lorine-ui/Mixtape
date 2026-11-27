@@ -75,9 +75,6 @@ public class MainActivity extends NativeActivity {
 
     // ---------- вызывается из C++ ----------
 
-    static String filesDir() { return inst.getFilesDir().getAbsolutePath(); }
-    static String cacheDir() { return inst.getCacheDir().getAbsolutePath(); }
-
     static boolean isOnline() {
         try {
             ConnectivityManager cm = (ConnectivityManager) inst.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -160,6 +157,15 @@ public class MainActivity extends NativeActivity {
             d.show();
             e.requestFocus();
         });
+    }
+
+    // yt-dlp (см. YtDlp.java): путь к скачанному звуку или «ERR:причина»; вызывается с рабочего потока
+    static String ytFetch(String videoId, String procId) {
+        return YtDlp.fetch(videoId, procId);
+    }
+
+    static void ytCancel(String procId) {
+        YtDlp.cancel(procId);
     }
 
     // открыть ссылку в браузере

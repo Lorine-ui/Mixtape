@@ -339,12 +339,42 @@ std::vector<Track> Net::iaSearch(const std::string& text) {
 
 // ---------- YouTube / Spotify ----------
 
+// Поиск идёт по YouTube Music (только песни, с названием, исполнителем и длительностью). Если он не ответил,
+// берём обычный поиск YouTube: так источник не остаётся пустым.
 std::vector<Track> Net::ytSearch(const std::string& q, int n) {
     std::string text = q.substr(0, 200);
     if (text.empty()) return {};
-    std::string html = get("https://www.youtube.com/results?search_query=" + urlEncode(text) + "&sp=EgIQAQ%3D%3D",
-                           {{"User-Agent", kUA}, {"Accept-Language", "en-US,en;q=0.9"}, {"Cookie", "CONSENT=YES+1; SOCS=CAI"}});
-    auto out = parseYtSearch(html);
+    std::vector<Track> out;
+    try {
+        Json client = Json::object();
+        client.set("clientName", Json("WEB_REMIX"));
+        client.set("clientVersion", Json("1.20250224.01.00"));
+        client.set("hl", Json("en"));
+        client.set("gl", Json("US"));
+        Json ctx = Json::object();
+        ctx.set("client", client);
+        Json body = Json::object();
+        body.set("context", ctx);
+        body.set("query", Json(text));
+        body.set("params", Json("EgWKAQIIAWoKEAkQBRAKEAMQBA=="));  // фильтр «Песни»
+        HttpOptions o;
+        o.method = "POST";
+        o.body = body.dump();
+        o.headers = {{"Content-Type", "application/json"},
+                     {"User-Agent", kUA},
+                     {"Origin", "https://music.youtube.com"},
+                     {"Referer", "https://music.youtube.com/"}};
+        o.timeoutMs = 15000;
+        HttpResponse r = http_.request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false", o);
+        if (r.ok()) out = parseYtmSearch(r.body);
+    } catch (const std::exception&) {
+        out.clear();
+    }
+    if (out.empty()) {
+        std::string html = get("https://www.youtube.com/results?search_query=" + urlEncode(text) + "&sp=EgIQAQ%3D%3D",
+                               {{"User-Agent", kUA}, {"Accept-Language", "en-US,en;q=0.9"}, {"Cookie", "CONSENT=YES+1; SOCS=CAI"}});
+        out = parseYtSearch(html);
+    }
     if (static_cast<int>(out.size()) > n) out.resize(static_cast<std::size_t>(n));
     return out;
 }
@@ -380,49 +410,78 @@ PlaylistInfo Net::spPlaylist(const std::string& kind, const std::string& idIn) {
                             {{"User-Agent", kUA}, {"Accept-Language", "en-US,en;q=0.9"}}));
 }
 
-// Прямая ссылка на звук YouTube через внутренний API клиента Android. Способ неофициальный и ломается,
-// поэтому приложение при неудаче ищет ту же песню в других источниках (findAlternative).
-std::string Net::ytDirectUrl(const std::string& videoId, std::size_t& length) {
-    Json ctx = Json::object();
-    Json client = Json::object();
-    client.set("clientName", Json("ANDROID"));
-    client.set("clientVersion", Json("19.09.37"));
-    client.set("androidSdkVersion", Json(30));
-    client.set("hl", Json("en"));
-    client.set("gl", Json("US"));
-    ctx.set("client", client);
-    Json body = Json::object();
-    body.set("videoId", Json(videoId));
-    body.set("context", ctx);
-    body.set("contentCheckOk", Json(true));
-    body.set("racyCheckOk", Json(true));
+// Прямая ссылка на звук через внутренний API мобильных клиентов YouTube. Способ неофициальный и ломается:
+// сервер перестаёт принимать старые версии клиентов, поэтому их надо время от времени обновлять. Если один
+// клиент не сработал, пробуем следующий; если не сработал ни один, приложение ищет ту же песню в других
+// источниках (findAlternative). Клиенты самого YouTube Music без входа в аккаунт звук не отдают.
+std::string Net::ytDirectUrl(const std::string& videoId, std::size_t& length, std::string& userAgent) {
+    struct Cl {
+        const char* name;
+        const char* ver;
+        const char* id;
+        const char* ua;
+        bool ios;
+    };
+    static const Cl clients[] = {
+        {"ANDROID", "20.10.38", "3", "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip", false},
+        {"IOS", "20.10.4", "5", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)", true},
+    };
+    std::string lastErr = "YouTube не отдал прямую ссылку на звук";
+    for (const Cl& c : clients) {
+        Json client = Json::object();
+        client.set("clientName", Json(c.name));
+        client.set("clientVersion", Json(c.ver));
+        if (c.ios) {
+            client.set("deviceMake", Json("Apple"));
+            client.set("deviceModel", Json("iPhone16,2"));
+            client.set("osName", Json("iPhone"));
+            client.set("osVersion", Json("18.3.2.22D82"));
+        } else {
+            client.set("androidSdkVersion", Json(30));
+            client.set("osName", Json("Android"));
+            client.set("osVersion", Json("11"));
+        }
+        client.set("hl", Json("en"));
+        client.set("gl", Json("US"));
+        Json ctx = Json::object();
+        ctx.set("client", client);
+        Json body = Json::object();
+        body.set("videoId", Json(videoId));
+        body.set("context", ctx);
+        body.set("contentCheckOk", Json(true));
+        body.set("racyCheckOk", Json(true));
 
-    HttpOptions o;
-    o.method = "POST";
-    o.body = body.dump();
-    o.headers = {{"Content-Type", "application/json"},
-                 {"User-Agent", "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"},
-                 {"X-YouTube-Client-Name", "3"},
-                 {"X-YouTube-Client-Version", "19.09.37"}};
-    HttpResponse r = http_.request("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", o);
-    if (!r.ok()) fail("YouTube ответил ошибкой " + std::to_string(r.status));
-    Json j = parseJsonBody(r.body);
-    std::string st = j["playabilityStatus"]["status"].asStr();
-    if (!st.empty() && st != "OK") fail("YouTube не разрешил воспроизведение: " + j["playabilityStatus"]["reason"].asStr(st));
+        HttpOptions o;
+        o.method = "POST";
+        o.body = body.dump();
+        o.headers = {{"Content-Type", "application/json"},
+                     {"User-Agent", c.ua},
+                     {"X-YouTube-Client-Name", c.id},
+                     {"X-YouTube-Client-Version", c.ver}};
+        o.timeoutMs = 15000;
+        HttpResponse r = http_.request("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", o);
+        if (!r.ok()) { lastErr = "YouTube ответил ошибкой " + std::to_string(r.status); continue; }
+        Json j;
+        try { j = parseJsonBody(r.body); } catch (const std::exception&) { continue; }
+        std::string st = j["playabilityStatus"]["status"].asStr();
+        if (!st.empty() && st != "OK") { lastErr = "YouTube не разрешил воспроизведение: " + j["playabilityStatus"]["reason"].asStr(st); continue; }
 
-    const Json* best = nullptr;
-    for (const auto& f : j["streamingData"]["adaptiveFormats"].items()) {
-        if (!startsWith(f["mimeType"].asStr(), "audio/mp4") || !f["url"].isString()) continue;
-        double br = f["bitrate"].asNum();
-        if (!best) { best = &f; continue; }
-        double bb = (*best)["bitrate"].asNum();
-        bool fOk = br <= 160000, bOk = bb <= 160000;
-        if ((fOk && !bOk) || (fOk == bOk && ((fOk && br > bb) || (!fOk && br < bb)))) best = &f;
+        const Json* best = nullptr;
+        for (const auto& f : j["streamingData"]["adaptiveFormats"].items()) {
+            if (!startsWith(f["mimeType"].asStr(), "audio/mp4") || !f["url"].isString()) continue;
+            double br = f["bitrate"].asNum();
+            if (!best) { best = &f; continue; }
+            double bb = (*best)["bitrate"].asNum();
+            bool fOk = br <= 160000, bOk = bb <= 160000;
+            if ((fOk && !bOk) || (fOk == bOk && ((fOk && br > bb) || (!fOk && br < bb)))) best = &f;
+        }
+        if (!best) { lastErr = "YouTube не отдал прямую ссылку на звук"; continue; }
+        std::string cl = (*best)["contentLength"].asStr();
+        length = cl.empty() ? 0 : static_cast<std::size_t>(std::stoull(cl));
+        userAgent = c.ua;
+        return (*best)["url"].asStr();
     }
-    if (!best) fail("YouTube не отдал прямую ссылку на звук");
-    std::string cl = (*best)["contentLength"].asStr();
-    length = cl.empty() ? 0 : static_cast<std::size_t>(std::stoull(cl));
-    return (*best)["url"].asStr();
+    fail(lastErr);
 }
 
 // ---------- звук ----------
@@ -477,6 +536,11 @@ AudioBlob Net::downloadHls(const std::string& m3u8Url, const ProgressFn& progres
     return out;
 }
 
+std::string Net::lastYtError() {
+    std::lock_guard<std::mutex> lk(mu_);
+    return ytErr_;
+}
+
 AudioBlob Net::fetchAudio(const Track& t, const ProgressFn& progress, const std::atomic<bool>* cancel) {
     if (t.source == "audius") {
         for (int attempt = 0; attempt < 2; ++attempt) {
@@ -496,9 +560,19 @@ AudioBlob Net::fetchAudio(const Track& t, const ProgressFn& progress, const std:
         return scFetch(t.ref, progress, cancel);
     }
     if (t.source == "youtube") {
+        if (ytExternal) {  // yt-dlp, если он есть: только так YouTube отдаёт песню целиком
+            { std::lock_guard<std::mutex> lk(mu_); ytErr_.clear(); }
+            try {
+                return ytExternal(t.ref, progress, cancel);
+            } catch (const std::exception& e) {
+                { std::lock_guard<std::mutex> lk(mu_); ytErr_ = e.what(); }
+                if (cancel && cancel->load()) throw;
+            }
+        }
         std::size_t len = 0;
-        std::string url = ytDirectUrl(t.ref, len);
-        if (len == 0) return download(url, "x.m4a", progress, cancel);
+        std::string ua;
+        std::string url = ytDirectUrl(t.ref, len, ua);
+        if (len == 0) return download(url, "x.m4a", progress, cancel, {{"User-Agent", ua}});
         AudioBlob b;
         b.mime = "audio/mp4";
         b.ext = "m4a";
@@ -507,7 +581,7 @@ AudioBlob Net::fetchAudio(const Track& t, const ProgressFn& progress, const std:
             if (cancel && cancel->load()) fail("Загрузка отменена");
             std::size_t end = std::min(len, pos + chunk) - 1;
             AudioBlob part = download(url + "&range=" + std::to_string(pos) + "-" + std::to_string(end), "x.m4a", {}, cancel,
-                                      {{"User-Agent", "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"}});
+                                      {{"User-Agent", ua}});
             b.bytes += part.bytes;
             if (progress) progress(static_cast<double>(end + 1) / static_cast<double>(len));
         }
@@ -610,7 +684,7 @@ SearchOutcome Net::searchAll(const std::string& q, const Library& lib) {
     add("Audius", "audius", [&] { return audiusSearch(q, 20); });
     add("SoundCloud", "soundcloud", [&] { return scSearch(q, 15); });
     add("Internet Archive", "archive", [&] { return iaSearch(q); });
-    add("YouTube", "youtube", [&] { return ytSearch(q, 10); });
+    add("YouTube Music", "youtube", [&] { return ytSearch(q, 10); });
 
     SearchOutcome out;
     std::vector<SearchHit> hits;

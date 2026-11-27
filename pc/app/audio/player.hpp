@@ -17,12 +17,10 @@ public:
     bool start(std::string* err);  // открывает звуковое устройство
     // Загружает песню из байтов. Пауза, пока не вызовут play(). ext — подсказка формата (mp3, m4a...).
     bool load(std::string bytes, const std::string& ext, const Segment& seg, double startSec, std::string* err);
-    void unload();
 
     void play();
     void pause();
     bool playing() const;
-    bool hasTrack() const;
     bool ended() const;  // дошло до конца (или до конца фрагмента); сбрасывается load() и seek()
 
     double position() const;  // секунды в исходном треке

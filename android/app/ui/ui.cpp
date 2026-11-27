@@ -608,7 +608,7 @@ void Ui::drawRoot() {
         viewStart_ = app_.now();
     }
     if (mobile_) {
-        drawContent(ImVec2(0, 0), ImVec2(W_.x, W_.y - kTabH));
+        drawContent(ImVec2(0, 0), ImVec2(W_.x, W_.y - tabH()));
         drawTopBar(ImVec2(12, 14), W_.x - 24);
     } else {
         drawContent(ImVec2(mx, 0), ImVec2(mw, W_.y));
@@ -876,14 +876,14 @@ void Ui::drawToast() {
     double left = app_.toastUntil - app_.now();
     if (left <= 0 || app_.toastText.empty()) return;
     float a = static_cast<float>(std::min(1.0, left / 0.35));
-    float in = easeOut(static_cast<float>(std::min(1.0, (3.8 - left) / 0.3)));
+    float in = easeOut(static_cast<float>(std::min(1.0, (app_.toastLen - left) / 0.3)));
     ImDrawList* fg = ImGui::GetForegroundDrawList();
     float maxW = std::min(560.f, W_.x - 60.f);
     ImVec2 ts = measure(F_.bold, 14.f, app_.toastText, maxW - 40);
     ImVec2 sz(ts.x + 40, ts.y + 26);
     float sbw = W_.x < 900.f ? 0.f : kSide;
     float bottomGap = (miniA_.v > 0.02f && fullA_.v < 0.5f) ? kMiniH + 28.f : 24.f;
-    if (mobile_) { sbw = 0.f; bottomGap = fullA_.v < 0.5f ? kTabH + (miniA_.v > 0.02f ? kMiniHMobile + 8.f : 0.f) + 16.f : 40.f; }
+    if (mobile_) { sbw = 0.f; bottomGap = fullA_.v < 0.5f ? tabH() + (miniA_.v > 0.02f ? miniHM() + 8.f : 0.f) + 16.f : 40.f; }
     ImVec2 p(sbw + (W_.x - sbw - sz.x) / 2, W_.y - bottomGap - sz.y - (1.f - in) * -16.f);
     fg->AddRectFilled(p, p + sz, IM_COL32(30, 27, 44, static_cast<int>(245 * a)), 16.f);
     fg->AddRect(p, p + sz, alpha(pal_.acc, 0.5f * a), 16.f);
@@ -905,7 +905,7 @@ void Ui::drawTeto() {
     float sbw = W_.x < 900.f ? 0.f : kSide;
     float baseX = left ? sbw + 24.f + w / 2 : W_.x - 28.f - w / 2;
     float baseY = W_.y - (miniA_.v > 0.02f ? kMiniH + 22.f : 20.f);
-    if (mobile_) { sbw = 0.f; baseX = left ? 12.f + w / 2 : W_.x - 12.f - w / 2; baseY = W_.y - kTabH - (miniA_.v > 0.02f ? kMiniHMobile + 14.f : 6.f); }
+    if (mobile_) { sbw = 0.f; baseX = left ? 12.f + w / 2 : W_.x - 12.f - w / 2; baseY = W_.y - tabH() - (miniA_.v > 0.02f ? miniHM() + 14.f : 6.f); }
     bool dancing = app_.isPlaying();
     float bounce = dancing ? std::fabs(std::sin(time_ * 3.4f)) * 9.f : 0.f;
     float sway = dancing ? std::sin(time_ * 3.4f) * 0.055f : 0.f;

@@ -27,7 +27,6 @@ std::vector<std::string> split(const std::string& s, char sep);
 // Режет по « - », « – », « — » (дефис с пробелами по краям).
 std::vector<std::string> splitDash(const std::string& s);
 std::string join(const std::vector<std::string>& v, const std::string& sep);
-std::vector<std::string> tokens(const std::string& s);  // слова после nrm
 
 // Процентное кодирование (RFC 3986, как encodeURIComponent).
 std::string urlEncode(const std::string& s);

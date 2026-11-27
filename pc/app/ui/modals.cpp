@@ -18,7 +18,7 @@ const SrcInfo kSources[] = {
     {"audius", "Audius", "Независимая музыка, играет надёжно"},
     {"soundcloud", "SoundCloud", "Огромный каталог; часть песен ограничена правообладателями"},
     {"archive", "Internet Archive", "Старые записи и свободная музыка"},
-    {"youtube", "YouTube", "Прямые потоки иногда не отдаются: тогда песня ищется в других источниках"},
+    {"youtube", "YouTube Music", "Прямые потоки иногда не отдаются: тогда песня ищется в других источниках"},
 };
 }  // namespace
 
@@ -423,6 +423,17 @@ void Ui::modalSettings(ImVec2 o, ImVec2 sz) {
                 app_.touch();
             }
             endRow();
+        }
+        if (app_.platform.hasYtDlp) {
+            const bool have = app_.platform.hasYtDlp();
+            y += 10;
+            drawText(cd, F_.bold, 13.f, ImVec2(x, y), have ? alpha(pal_.acc, 0.95f) : white(0.7f), have ? "yt-dlp найден: YouTube Music играет напрямую" : "yt-dlp не найден");
+            y += 24;
+            if (!have) {
+                drawText(cd, F_.regular, 13.f, ImVec2(x, y), white(0.55f),
+                         "Положите yt-dlp.exe рядом с Mixtape.exe, и YouTube Music заиграет напрямую, без подмены другими источниками.", w);
+                y += 44;
+            }
         }
     } else {
         head("АККАУНТ");

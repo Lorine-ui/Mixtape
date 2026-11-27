@@ -394,6 +394,73 @@ void Ui::drawFull() {
     ImVec2 ts = measure(F_.bold, 13.f, top);
     drawText(dl, F_.bold, 13.f, ImVec2((W_.x - ts.x) / 2, 30), white(0.55f), top);
 
+    // Телефон лёжа (низкий экран): две колонки. Колонка управления — название, полоса, кнопки, действия;
+    // в другой — вертушка, а когда открыт текст или фрагмент, — эта панель (тогда управление уезжает налево).
+    if (compact()) {
+        const bool panel = fr_.open || app_.ly.open;
+        const float pad = 18.f, top = 56.f;
+        const float colW = W_.x * 0.46f;
+        const float cx0 = panel ? pad : W_.x - colW + 8.f;
+        const float cw = colW - pad - 8.f;
+        const float vx0 = panel ? colW + 8.f : 0.f;
+        const float vw = panel ? W_.x - vx0 - pad : W_.x - colW;
+        if (!panel) {
+            // «плита» вертушки примерно в 1.2 раза больше самой пластинки
+            float ds = std::clamp(std::min(vw - 2 * pad, W_.y - top - 20.f) / 1.22f, 110.f, 300.f);
+            drawDeck(ImVec2(vw / 2, top + (W_.y - top - 12.f) / 2), ds);
+        } else {
+            if (fr_.open) drawFragment(ImVec2(vx0, top + 4.f), ImVec2(vw, W_.y - top - 16.f));
+            else {
+                if (app_.ly.key.empty() || app_.ly.key != lyricKey(t)) app_.loadLyrics(false);
+                drawLyrics(ImVec2(vx0, top + 4.f), ImVec2(vw, W_.y - top - 16.f));
+            }
+        }
+        const float y0 = std::max(top - 8.f, (W_.y - 232.f) / 2.f + 14.f);
+        const float mid = cx0 + cw / 2;
+        std::string tt = ellipsize(F_.bold, 22.f, t.title, cw);
+        ImVec2 tsz = measure(F_.bold, 22.f, tt);
+        drawText(dl, F_.bold, 22.f, ImVec2(mid - tsz.x / 2, y0), white(0.98f), tt);
+        std::string ar = ellipsize(F_.regular, 15.f, t.artist, cw);
+        ImVec2 asz = measure(F_.regular, 15.f, ar);
+        drawText(dl, F_.regular, 15.f, ImVec2(mid - asz.x / 2, y0 + 32), white(0.6f), ar);
+        drawProgress(ImVec2(cx0, y0 + 80), cw, true);
+        drawTransport(ImVec2(mid, y0 + 142), std::min(1.2f, cw / 330.f));
+        // ряд действий: значки и кнопки разной ширины, промежутки делим поровну (в узкой колонке ничего не слипается)
+        const float ry = y0 + 206;
+        static const float kW[5] = {42.f, 42.f, 54.f, 62.f, 42.f};
+        const float gap = std::max(2.f, (cw - (kW[0] + kW[1] + kW[2] + kW[3] + kW[4])) / 4.f);
+        auto at = [&](int i) {
+            float x = cx0;
+            for (int j = 0; j < i; ++j) x += kW[j] + gap;
+            return x + kW[i] / 2.f;
+        };
+        bool fav = app_.inLibrary(t);
+        if (iconButton("##fullFav", dl, ImVec2(at(0), ry), 42.f, fav ? Icon::HeartFilled : Icon::Heart, fav)) {
+            if (fav && !t.clip) { Track c = t; confirm("Убрать «" + c.title + "» из вашей музыки?", [this, c] { app_.toggleFavorite(c); }); }
+            else app_.toggleFavorite(t);
+        }
+        bool busy = app_.exporting.count(t.id) > 0;
+        if (!t.clip && iconButton("##fullSave", dl, ImVec2(at(1), ry), 42.f, Icon::Save, busy) && !busy) app_.exportTrack(t);
+        static const double kRates2[] = {0.75, 1.0, 1.25, 1.5};
+        char rb2[16];
+        std::snprintf(rb2, sizeof rb2, "%.2g×", app_.rate);
+        if (pill("##fullRate", dl, ImVec2(at(2) - 27, ry - 17), ImVec2(54, 34), rb2, false, std::fabs(app_.rate - 1.0) > 0.01)) {
+            int idx = 1;
+            for (int i = 0; i < 4; ++i) if (std::fabs(kRates2[i] - app_.rate) < 0.01) idx = i;
+            app_.setRate(kRates2[(idx + 1) % 4]);
+        }
+        bool lyOn = app_.ly.open && !fr_.open;
+        if (pill("##fullLy", dl, ImVec2(at(3) - 31, ry - 17), ImVec2(62, 34), "Текст", false, lyOn)) { fr_.open = false; app_.openLyrics(!lyOn); }
+        if (iconButton("##fullCut", dl, ImVec2(at(4), ry), 42.f, Icon::Scissors, fr_.open)) {
+            fr_.open = !fr_.open;
+            fr_.init = false;
+            if (!fr_.open && fr_.previewing) { app_.endPreview(); fr_.previewing = false; }
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+        return;
+    }
+
     bool wide = W_.x >= 980.f;
     bool showRight = fr_.open || app_.ly.open;
     float bottomH = mobile_ ? 236.f : 150.f;  // на телефоне кнопки в два ряда

@@ -59,6 +59,10 @@ public:
     std::vector<Track> scRelated(const std::string& permalink, int n = 20);
     std::vector<Track> iaSearch(const std::string& q);
     std::vector<Track> ytSearch(const std::string& q, int n = 10);
+    // Необязательный внешний загрузчик звука YouTube (на ПК это yt-dlp). Не задан или бросил — работает встроенный способ.
+    std::function<AudioBlob(const std::string& videoId, const ProgressFn&, const std::atomic<bool>*)> ytExternal;
+    // Почему внешний загрузчик (yt-dlp) в последний раз не справился; пусто, если справился.
+    std::string lastYtError();
     // Все включённые в настройках источники параллельно; сбой одного не мешает остальным.
     SearchOutcome searchAll(const std::string& q, const Library& lib);
 
@@ -71,7 +75,7 @@ public:
     // ---- звук ----
     // Скачивает песню целиком в память (для проигрывания и офлайн-копии).
     AudioBlob fetchAudio(const Track& t, const ProgressFn& progress = {}, const std::atomic<bool>* cancel = nullptr);
-    // Та же песня в другом источнике (если YouTube не отдал поток): Audius, затем SoundCloud.
+    // Та же песня в другом источнике (если YouTube Music не отдал поток): Audius, затем SoundCloud.
     std::optional<Track> findAlternative(const Track& t, const Library& lib);
 
     // ---- тексты ----
@@ -95,11 +99,12 @@ private:
     AudioBlob download(const std::string& url, const std::string& hint, const ProgressFn& progress, const std::atomic<bool>* cancel,
                        const std::vector<std::pair<std::string, std::string>>& headers = {});
     AudioBlob downloadHls(const std::string& m3u8Url, const ProgressFn& progress, const std::atomic<bool>* cancel);
-    std::string ytDirectUrl(const std::string& videoId, std::size_t& length);
+    std::string ytDirectUrl(const std::string& videoId, std::size_t& length, std::string& userAgent);
 
     IHttp& http_;
     std::mutex mu_;
     std::string audiusHost_ = "https://api.audius.co";
+    std::string ytErr_;  // под mu_
     std::string scCid_;
     long long scCidAt_ = 0;
     std::map<std::string, std::pair<long long, Json>> scResolved_;  // permalink -> (время, ответ)

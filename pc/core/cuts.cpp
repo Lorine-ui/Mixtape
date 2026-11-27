@@ -32,18 +32,6 @@ double Segment::startPos() const {
     return p;
 }
 
-TickAction nextAction(const Segment& seg, double pos, double dur, double sinceStart, bool isSet) {
-    if (seg.hasLimit && pos >= seg.limE - 0.1) return {TickAction::End, 0};
-    if (!seg.hasLimit && !isSet && dur > 5 && pos >= dur - 1 && sinceStart > 3) return {TickAction::End, 0};
-    int c = seg.cutAt(pos);
-    if (c >= 0) {
-        double e = seg.cuts[static_cast<std::size_t>(c)].e;
-        if (dur > 0 && e >= dur - 0.3) return {TickAction::End, 0};
-        return {TickAction::Seek, e};
-    }
-    return {};
-}
-
 Segment buildSegment(const Track& t, const std::vector<Cut>& baseCuts, const std::vector<Cut>& ownCuts) {
     Segment s;
     std::vector<Cut> all = baseCuts;

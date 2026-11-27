@@ -19,6 +19,8 @@ struct PlaylistInfo {
 
 // ---------- YouTube / Spotify ----------
 std::vector<Track> parseYtSearch(const std::string& html);
+// YouTube Music: JSON-ответ /youtubei/v1/search (только песни). Бросает, если ответ не похож на поиск.
+std::vector<Track> parseYtmSearch(const std::string& json);
 PlaylistInfo parseYtPlaylist(const std::string& html);
 PlaylistInfo parseSpEmbed(const std::string& html);
 
@@ -37,8 +39,6 @@ struct ScTranscoding {
 // Все варианты потока из ответа /resolve, которые плеер умеет играть, от лучшего к худшему:
 // progressive mp3, HLS mp3, HLS/progressive AAC. Зашифрованные (DRM) и opus/ogg отброшены.
 std::vector<ScTranscoding> scTranscodings(const Json& track);
-// Лучший из них (пустой, если играть нечего).
-ScTranscoding scPickTranscoding(const Json& track);
 
 // ---------- Internet Archive ----------
 double lenSec(const Json& v);

@@ -103,7 +103,7 @@ bool Ui::mobileField(const char* id, ImVec2 p, float w, float h, std::string& va
 
 // ---------- вкладки снизу ----------
 void Ui::drawTabBar() {
-    const float h = kTabH;
+    const float h = tabH();
     ImGui::SetNextWindowPos(ImVec2(0, W_.y - h));
     ImGui::SetNextWindowSize(ImVec2(W_.x, h));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -132,10 +132,18 @@ void Ui::drawTabBar() {
         float press = hv(hh.id, hh.held, 20.f);
         ImU32 c = mix(white(0.55f), pal_.acc, on);
         float cx = p.x + tw / 2;
-        if (on > 0.01f) dl->AddRectFilled(ImVec2(cx - 26, a.y + 8), ImVec2(cx + 26, a.y + 36), alpha(pal_.acc, 0.16f * on), 14.f);
-        icon(dl, tabs[i].ic, ImVec2(cx, a.y + 22), 22.f * (1.f - 0.08f * press), c);
-        ImVec2 ls = measure(F_.bold, 11.5f, tabs[i].label);
-        drawText(dl, F_.bold, 11.5f, ImVec2(cx - ls.x / 2, a.y + 40), c, tabs[i].label);
+        if (compact()) {  // низкий экран: значок и подпись в одну строку
+            ImVec2 ls = measure(F_.bold, 12.5f, tabs[i].label);
+            float total = 22.f + 8.f + ls.x, x0 = cx - total / 2;
+            if (on > 0.01f) dl->AddRectFilled(ImVec2(x0 - 14, a.y + 6), ImVec2(x0 + total + 14, a.y + h - 6), alpha(pal_.acc, 0.16f * on), 16.f);
+            icon(dl, tabs[i].ic, ImVec2(x0 + 11, a.y + h / 2), 20.f * (1.f - 0.08f * press), c);
+            drawText(dl, F_.bold, 12.5f, ImVec2(x0 + 30, a.y + h / 2 - ls.y / 2), c, tabs[i].label);
+        } else {
+            if (on > 0.01f) dl->AddRectFilled(ImVec2(cx - 26, a.y + 8), ImVec2(cx + 26, a.y + 36), alpha(pal_.acc, 0.16f * on), 14.f);
+            icon(dl, tabs[i].ic, ImVec2(cx, a.y + 22), 22.f * (1.f - 0.08f * press), c);
+            ImVec2 ls = measure(F_.bold, 11.5f, tabs[i].label);
+            drawText(dl, F_.bold, 11.5f, ImVec2(cx - ls.x / 2, a.y + 40), c, tabs[i].label);
+        }
         if (hh.clicked) {
             if (wantFull_) openFull(false);
             switch (i) {
@@ -154,8 +162,8 @@ void Ui::drawTabBar() {
 void Ui::drawMiniMobile() {
     if (!app_.cur) return;
     const Track& t = *app_.cur;
-    const float h = kMiniHMobile, w = W_.x - 16.f, x = 8.f;
-    float y = W_.y - kTabH - h - 8.f + (1.f - easeOut(miniA_.v)) * (h + kTabH);
+    const float h = miniHM(), w = W_.x - 16.f, x = 8.f;
+    float y = W_.y - tabH() - h - 8.f + (1.f - easeOut(miniA_.v)) * (h + tabH());
     ImGui::SetNextWindowPos(ImVec2(x, y));
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));

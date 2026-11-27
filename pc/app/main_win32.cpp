@@ -15,7 +15,9 @@
 #include <wininet.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <list>
 #include <string>
@@ -243,6 +245,271 @@ std::vector<std::string> pickFiles(HWND owner, bool multi, const wchar_t* filter
     return out;
 }
 
+// ---------- yt-dlp (необязательно): YouTube Music играет напрямую ----------
+// YouTube не отдаёт песню целиком обычным способом. Если рядом с Mixtape.exe (или в папке данных, или в PATH)
+// лежит yt-dlp.exe, звук песен YouTube Music берём у него; нет файла или не вышло — работает прежний путь.
+std::wstring exeDir() {
+    wchar_t buf[MAX_PATH * 2];
+    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH * 2);
+    std::wstring p(buf, n);
+    size_t k = p.find_last_of(L"\\/");
+    return k == std::wstring::npos ? std::wstring() : p.substr(0, k);
+}
+
+bool plainFile(const std::wstring& p) {
+    DWORD a = GetFileAttributesW(p.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+std::wstring onPath(const wchar_t* name) {
+    wchar_t buf[MAX_PATH * 2];
+    DWORD n = SearchPathW(nullptr, name, nullptr, MAX_PATH * 2, buf, nullptr);
+    return n > 0 && n < MAX_PATH * 2 ? std::wstring(buf, n) : std::wstring();
+}
+
+constexpr int kResYtDlp = 102;
+
+// Копия yt-dlp, вшитая в Mixtape.exe (если exe собран с ней).
+bool embeddedYtDlp(const void*& data, size_t& size) {
+    HMODULE mod = GetModuleHandleW(nullptr);
+    HRSRC r = FindResourceW(mod, MAKEINTRESOURCEW(kResYtDlp), RT_RCDATA);
+    if (!r) return false;
+    HGLOBAL g = LoadResource(mod, r);
+    if (!g) return false;
+    data = LockResource(g);
+    size = SizeofResource(mod, r);
+    return data != nullptr && size > (1u << 20);
+}
+
+std::string readSmallFile(const std::wstring& path) {
+    std::string s;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, path.c_str(), L"rb") == 0 && f) {
+        char buf[64];
+        size_t got = fread(buf, 1, sizeof(buf), f);
+        s.assign(buf, got);
+        fclose(f);
+    }
+    return s;
+}
+
+bool writeWholeFile(const std::wstring& path, const void* data, size_t size) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    const char* p = static_cast<const char*>(data);
+    size_t left = size;
+    bool ok = true;
+    while (left > 0 && ok) {
+        DWORD chunk = static_cast<DWORD>(std::min<size_t>(left, 1u << 20)), wrote = 0;
+        ok = WriteFile(h, p, chunk, &wrote, nullptr) && wrote == chunk;
+        p += wrote;
+        left -= wrote;
+    }
+    CloseHandle(h);
+    return ok;
+}
+
+// Кладёт вшитый yt-dlp в папку данных. Своим файлам не вредит: если там уже лежит чужой yt-dlp.exe
+// (рядом нет записки yt-dlp.embedded), он остаётся как есть. Нашу же копию заменяем, только когда в новом
+// Mixtape.exe вшита другая версия (размер отличается от записанного в записке).
+void ensureEmbeddedYtDlp(const std::wstring& dest, const std::wstring& stamp) {
+    const void* data = nullptr;
+    size_t size = 0;
+    if (!embeddedYtDlp(data, size)) return;
+    const std::string want = std::to_string(size);
+    const bool exists = plainFile(dest);
+    const std::string have = readSmallFile(stamp);
+    if (exists && (have.empty() || have == want)) return;  // чужой файл или наша актуальная копия
+    std::wstring tmp = dest + L".tmp";
+    if (!writeWholeFile(tmp, data, size)) {
+        DeleteFileW(tmp.c_str());
+        return;
+    }
+    if (!MoveFileExW(tmp.c_str(), dest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(tmp.c_str());
+        return;
+    }
+    writeWholeFile(stamp, want.data(), want.size());
+}
+
+// Порядок поиска: рядом с Mixtape.exe, затем в PATH, затем в папке данных (там же распаковывается вшитая копия).
+std::wstring findYtDlp(const std::string& dataDir, bool extract = false) {
+    std::wstring c = exeDir() + L"\\yt-dlp.exe";
+    if (plainFile(c)) return c;
+    c = onPath(L"yt-dlp.exe");
+    if (!c.empty()) return c;
+    const std::wstring dest = toWide(dataDir) + L"\\yt-dlp.exe";
+    if (extract) ensureEmbeddedYtDlp(dest, toWide(dataDir) + L"\\yt-dlp.embedded");
+    return plainFile(dest) ? dest : std::wstring();
+}
+
+bool haveYtDlp(const std::string& dataDir) {
+    const void* data = nullptr;
+    size_t size = 0;
+    return !findYtDlp(dataDir).empty() || embeddedYtDlp(data, size);
+}
+
+// Запускает yt-dlp без окна и по ходу читает проценты из его вывода. true — завершился с кодом 0.
+bool runYtDlp(const std::wstring& exe, const std::wstring& args, const std::atomic<bool>* cancel, const mx::ProgressFn& progress,
+              std::string& tail) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE rd = nullptr, wr = nullptr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return false;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = nul;
+    si.hStdOutput = wr;
+    si.hStdError = wr;
+    std::wstring cmd = L"\"" + exe + L"\" " + args;
+    PROCESS_INFORMATION pi{};
+    BOOL started = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(wr);
+    if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    if (!started) {
+        CloseHandle(rd);
+        tail = "не удалось запустить yt-dlp";
+        return false;
+    }
+    std::string pending;
+    auto onLine = [&](const std::string& line) {
+        if (line.rfind("MXP", 0) == 0) {
+            double p = std::atof(line.c_str() + 3);
+            if (progress && p > 0) progress(std::min(1.0, p / 100.0));
+        } else if (!line.empty()) {
+            tail += line + "\n";
+            if (tail.size() > 600) tail.erase(0, tail.size() - 600);
+        }
+    };
+    auto drain = [&] {
+        DWORD avail = 0;
+        while (PeekNamedPipe(rd, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+            char buf[2048];
+            DWORD got = 0;
+            if (!ReadFile(rd, buf, std::min<DWORD>(avail, sizeof(buf)), &got, nullptr) || got == 0) break;
+            pending.append(buf, got);
+            size_t k;
+            while ((k = pending.find_first_of("\r\n")) != std::string::npos) {
+                onLine(pending.substr(0, k));
+                pending.erase(0, k + 1);
+            }
+        }
+    };
+    const auto t0 = std::chrono::steady_clock::now();
+    bool aborted = false;
+    for (;;) {
+        drain();
+        if (WaitForSingleObject(pi.hProcess, 80) == WAIT_OBJECT_0) {
+            drain();
+            break;
+        }
+        if ((cancel && cancel->load()) || std::chrono::steady_clock::now() - t0 > std::chrono::minutes(8)) {
+            TerminateProcess(pi.hProcess, 1);
+            WaitForSingleObject(pi.hProcess, 2000);
+            aborted = true;
+            break;
+        }
+    }
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(rd);
+    return !aborted && code == 0;
+}
+
+mx::AudioBlob ytDlpFetch(const std::string& dataDir, const std::string& videoId, const mx::ProgressFn& progress,
+                         const std::atomic<bool>* cancel) {
+    bool idOk = !videoId.empty() && videoId.size() <= 24;
+    for (char ch : videoId)
+        if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-')) idOk = false;
+    if (!idOk) throw std::runtime_error("Некорректный id видео");
+    std::wstring exe = findYtDlp(dataDir, true);
+    if (exe.empty()) throw std::runtime_error("yt-dlp не найден");
+
+    wchar_t tmpDir[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmpDir);
+    std::wstring dir = std::wstring(tmpDir) + L"MixtapeYtDlp";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring base = dir + L"\\yt_" + toWide(videoId) + L"_" + std::to_wstring(GetTickCount64());
+
+    auto firstOutput = [&]() -> std::wstring {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((base + L".*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return {};
+        std::wstring r;
+        do {
+            std::wstring nm = fd.cFileName;
+            bool partial = nm.size() > 5 && (nm.substr(nm.size() - 5) == L".part" || nm.substr(nm.size() - 5) == L".ytdl");
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !partial) {
+                r = dir + L"\\" + nm;
+                break;
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+        return r;
+    };
+    auto cleanup = [&] {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((base + L".*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return;
+        do {
+            DeleteFileW((dir + L"\\" + fd.cFileName).c_str());
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    };
+
+    const std::wstring common =
+        L"-f \"bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio\" --no-playlist --no-warnings --no-part --no-mtime --newline "
+        L"--progress-template \"download:MXP %(progress._percent_str)s\" -o \"" +
+        base + L".%(ext)s\" \"https://www.youtube.com/watch?v=" + toWide(videoId) + L"\"";
+    // Свежему yt-dlp нужен JavaScript-движок для YouTube: если есть Node, а Deno нет, подсказываем ему Node.
+    // Если эта настройка не подошла (старая версия yt-dlp), второй попыткой запускаем без неё.
+    std::vector<std::wstring> attempts;
+    if (!onPath(L"node.exe").empty() && onPath(L"deno.exe").empty()) attempts.push_back(L"--js-runtimes node " + common);
+    attempts.push_back(common);
+
+    std::string tail;
+    for (const auto& a : attempts) {
+        tail.clear();
+        bool ok = runYtDlp(exe, a, cancel, progress, tail);
+        if (cancel && cancel->load()) {
+            cleanup();
+            throw std::runtime_error("Загрузка отменена");
+        }
+        std::wstring out = ok ? firstOutput() : std::wstring();
+        if (out.empty()) {
+            cleanup();
+            continue;
+        }
+        mx::AudioBlob b;
+        FILE* f = nullptr;
+        if (_wfopen_s(&f, out.c_str(), L"rb") == 0 && f) {
+            char buf[1 << 16];
+            size_t got;
+            while ((got = fread(buf, 1, sizeof(buf), f)) > 0) b.bytes.append(buf, got);
+            fclose(f);
+        }
+        size_t dot = out.find_last_of(L'.');
+        std::string ext = dot == std::wstring::npos ? "m4a" : toUtf8(out.substr(dot + 1).c_str());
+        for (auto& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        cleanup();
+        if (b.bytes.size() < 2000) {
+            tail = "yt-dlp вернул пустой файл";
+            continue;
+        }
+        b.ext = ext;
+        b.mime = ext == "m4a" || ext == "mp4" ? "audio/mp4" : ext == "webm" ? "audio/webm" : ext == "opus" || ext == "ogg" ? "audio/ogg" : ext == "wav" ? "audio/wav" : "audio/mpeg";
+        return b;
+    }
+    throw std::runtime_error("yt-dlp: " + (tail.empty() ? std::string("не получилось") : tail));
+}
+
 LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return true;
     switch (msg) {
@@ -402,6 +669,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         return std::string(static_cast<const char*>(LockResource(g)), SizeofResource(inst, r));
     };
 
+    const std::string ytDataDir = appDataDir();
+    pf.ytDlpFetch = [ytDataDir](const std::string& id, const mx::ProgressFn& pr, const std::atomic<bool>* cancel) {
+        return ytDlpFetch(ytDataDir, id, pr, cancel);
+    };
+    pf.hasYtDlp = [ytDataDir] { return haveYtDlp(ytDataDir); };
     pf.setFullscreen = [hwnd](bool on) { setFullscreen(hwnd, on); };
     pf.isFullscreen = [] { return g_fullscreen; };
     pf.setTitleBarColor = [hwnd](int r, int g, int b) { setTitleBarColor(hwnd, r, g, b); };

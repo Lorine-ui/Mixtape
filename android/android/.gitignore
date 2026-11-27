@@ -1,0 +1,8 @@
+.gradle/
+build/
+app/build/
+app/.cxx/
+local.properties
+app/src/main/assets/teto.png
+app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+Mixtape.apk

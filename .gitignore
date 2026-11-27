@@ -1,4 +1,4 @@
-# Prerequisites
+﻿# Prerequisites
 *.d
 
 # Compiled Object files
@@ -68,10 +68,10 @@ Testing/
 .cache/
 
 # Mixtape
-!download/*.exe
 android/android/local.properties
 android/android/.gradle/
 android/android/app/.cxx/
 android/android/app/src/main/assets/
 android/android/app/src/main/res/mipmap-xxxhdpi/
 build-log.txt
+pc/resources/yt-dlp.exe

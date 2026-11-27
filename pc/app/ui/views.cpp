@@ -417,7 +417,7 @@ void Ui::viewHome(ImVec2 size) {
                  app_.acct.loggedIn() ? std::string(hello) + ", " + app_.acct.name() : std::string(hello));
         drawText(dl, F_.bold, 40.f, ImVec2(tx, b0.y + 50.f + lift), white(0.99f * a), "Что послушаем?");
         drawText(dl, F_.regular, 15.f, ImVec2(tx, b0.y + 58.f + measure(F_.bold, 40.f, "Ag").y + lift), white(0.72f * a),
-                 ellipsize(F_.regular, 15.f, "Ищите по названию — сразу в Audius, SoundCloud, Internet Archive и YouTube.", b1.x - tx - 32.f));
+                 ellipsize(F_.regular, 15.f, "Ищите по названию — сразу в Audius, SoundCloud, Internet Archive и YouTube Music.", b1.x - tx - 32.f));
         y += 168.f + 22.f;
     }
 

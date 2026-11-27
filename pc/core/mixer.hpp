@@ -34,7 +34,6 @@ public:
     double position() const { return pos_.load(); }  // секунды в исходном треке
     double duration() const { return dur_; }
     bool ended() const { return ended_.load(); }
-    void clearEnded() { ended_ = false; }
 
 private:
     bool jumpTo(uint64_t frame);

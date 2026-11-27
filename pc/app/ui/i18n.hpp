@@ -8,7 +8,6 @@ namespace mx::ui {
 
 // 0 ru, 1 en, 2 uk, 3 es, 4 de, 5 fr, 6 pt, 7 it, 8 pl, 9 tr
 void setLanguage(int lang);
-int language();
 int languageFromId(const std::string& id);
 int languageCount();
 const char* languageId(int i);    // "ru", "en", …

@@ -138,7 +138,11 @@ private:
     void touchScroll();   // сразу после BeginChild прокручиваемой области: тянуть список пальцем
     bool mobileField(const char* id, ImVec2 p, float w, float h, std::string& value, const char* hint, const char* title, bool multiline,
                      bool password = false);
-    float bottomPad() const { return mobile_ ? kTabH + kMiniHMobile + 60.f : 130.f; }  // запас под мини-плеером
+    // Низкий экран (телефон лёжа, высота меньше ~520 точек): компактные вкладки, мини-плеер и проигрыватель в две колонки.
+    bool compact() const { return mobile_ && W_.y < 520.f && W_.x > W_.y * 1.2f; }
+    float tabH() const { return compact() ? 46.f : kTabH; }
+    float miniHM() const { return compact() ? 54.f : kMiniHMobile; }
+    float bottomPad() const { return mobile_ ? tabH() + miniHM() + (compact() ? 24.f : 60.f) : 130.f; }  // запас под мини-плеером
     void confirm(const std::string& text, std::function<void()> yes);
 
     // ----- состояние -----

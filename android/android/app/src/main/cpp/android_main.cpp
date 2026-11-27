@@ -1,5 +1,10 @@
 // Mixtape для Android: окно (OpenGL ES 3 через EGL), сенсорный ввод, кнопка «Назад» и всё, что идёт через Java.
 // Логика приложения и интерфейс — тот же общий код, что у версии для Windows (app/, core/).
+#include <fstream>
+#include <iterator>
+#include <thread>
+#include <cctype>
+#include <cstdio>
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <android/asset_manager.h>
@@ -375,6 +380,55 @@ mx::Platform makePlatform() {
         e->CallStaticVoidMethod(mxa::activityClass(), m, u);
         e->DeleteLocalRef(u);
         mxa::takeException(e);
+    };
+    // Песни YouTube Music целиком через yt-dlp, вшитый в приложение (YtDlp.java). Блокирует рабочий поток, пока
+    // идёт загрузка; отмену передаёт во второй поток-наблюдатель. Любая неудача — исключение, и тогда Net::fetchAudio
+    // использует прежний путь.
+    pf.ytDlpFetch = [](const std::string& id, const mx::ProgressFn&, const std::atomic<bool>* cancel) -> mx::AudioBlob {
+        static std::atomic<int> seq{0};
+        const std::string proc = "mx" + std::to_string(++seq);
+        std::atomic<bool> done{false};
+        std::thread watcher([&] {
+            while (!done.load()) {
+                if (cancel && cancel->load()) {
+                    JNIEnv* ce = mxa::env();
+                    static jmethodID mc = staticMethod(ce, "ytCancel", "(Ljava/lang/String;)V");
+                    jstring jp = mxa::jstr(ce, proc);
+                    ce->CallStaticVoidMethod(mxa::activityClass(), mc, jp);
+                    ce->DeleteLocalRef(jp);
+                    mxa::takeException(ce);
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(120));
+            }
+        });
+        std::string res;
+        {
+            JNIEnv* e = mxa::env();
+            static jmethodID m = staticMethod(e, "ytFetch", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+            jstring ji = mxa::jstr(e, id), jp = mxa::jstr(e, proc);
+            auto r = static_cast<jstring>(e->CallStaticObjectMethod(mxa::activityClass(), m, ji, jp));
+            std::string ex = mxa::takeException(e);
+            res = ex.empty() ? mxa::str(e, r) : "ERR:" + ex;
+            e->DeleteLocalRef(ji);
+            e->DeleteLocalRef(jp);
+            if (r) e->DeleteLocalRef(r);
+        }
+        done = true;
+        watcher.join();
+        if (res.empty() || res.rfind("ERR:", 0) == 0) throw std::runtime_error("yt-dlp: " + (res.size() > 4 ? res.substr(4, 300) : std::string("нет ответа")));
+        mx::AudioBlob b;
+        {
+            std::ifstream f(res, std::ios::binary);
+            b.bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        }
+        std::remove(res.c_str());
+        if (b.bytes.size() < 2000) throw std::runtime_error("yt-dlp вернул пустой файл");
+        size_t dot = res.find_last_of('.');
+        b.ext = dot == std::string::npos ? "m4a" : res.substr(dot + 1);
+        for (auto& ch : b.ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        b.mime = b.ext == "m4a" || b.ext == "mp4" ? "audio/mp4" : b.ext == "webm" ? "audio/webm" : b.ext == "opus" || b.ext == "ogg" ? "audio/ogg" : "audio/mpeg";
+        return b;
     };
     pf.publishFile = [](const std::string& path, const std::string& kind) {
         JNIEnv* e = mxa::env();

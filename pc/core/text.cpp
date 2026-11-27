@@ -180,14 +180,6 @@ std::string join(const std::vector<std::string>& v, const std::string& sep) {
     return o;
 }
 
-std::vector<std::string> tokens(const std::string& s) {
-    std::vector<std::string> o;
-    std::string n = nrm(s);
-    if (n.empty()) return o;
-    for (auto& w : split(n, ' ')) if (!w.empty()) o.push_back(w);
-    return o;
-}
-
 std::string urlEncode(const std::string& s) {
     std::string o;
     char b[4];

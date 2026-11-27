@@ -164,19 +164,9 @@ bool Player::copyBytes(std::string& bytes, std::string& ext) const {
     return true;
 }
 
-void Player::unload() {
-    std::lock_guard<std::mutex> lk(d_->mu);
-    d_->cur.reset();
-    d_->has = false;
-    d_->playing = false;
-    d_->pos = 0;
-    d_->dur = 0;
-}
-
 void Player::play() { d_->playing = true; }
 void Player::pause() { d_->playing = false; }
 bool Player::playing() const { return d_->playing.load() && d_->has.load(); }
-bool Player::hasTrack() const { return d_->has.load(); }
 bool Player::ended() const { return d_->ended.load(); }
 double Player::position() const { return d_->pos.load(); }
 double Player::duration() const { return d_->dur.load(); }

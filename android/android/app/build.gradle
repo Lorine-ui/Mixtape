@@ -11,8 +11,8 @@ android {
         applicationId 'com.mixtape.app'
         minSdk 29          // Android 10+: сохранение в «Музыку» и «Загрузки» без лишних разрешений
         targetSdk 34
-        versionCode 1
-        versionName '2.0'
+        versionCode 2
+        versionName '1.1'
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
         externalNativeBuild {
             cmake { arguments '-DANDROID_STL=c++_static' }
@@ -38,6 +38,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // yt-dlp для Android (библиотека распаковывает Python и yt-dlp при первом запуске из jniLibs)
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+}
+
+dependencies {
+    // песни YouTube Music целиком: см. YtDlp.java
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
 }
 
 // Иконка и картинка Тето — из общей папки resources (те же, что у версии для Windows)

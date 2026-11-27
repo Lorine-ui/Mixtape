@@ -193,8 +193,8 @@ void Ui::listHeader(float w, const std::string& title, const std::string& sub, c
     float yy = o.y + y - sy + (1.f - a) * 10.f;
     // у «Моей музыки», плейлистов и фрагментов — плитка-обложка слева, как у альбома; у поиска — без неё
     const bool tile = app_.view != ViewKind::Search;
-    const float ts = tile ? (mobile_ ? 92.f : 128.f) : 0.f;
-    const float tfs = mobile_ ? 28.f : 36.f;  // размер названия
+    const float ts = tile ? (compact() ? 64.f : mobile_ ? 92.f : 128.f) : 0.f;
+    const float tfs = compact() ? 24.f : mobile_ ? 28.f : 36.f;  // размер названия
     float tx = x;
     if (tile) {
         Icon ic = app_.view == ViewKind::Library ? Icon::HeartFilled : app_.view == ViewKind::Clips ? Icon::Scissors
@@ -407,7 +407,8 @@ void Ui::viewHome(ImVec2 size) {
 #endif
         int hr = lt.tm_hour;
         const char* hello = hr < 5 ? "Доброй ночи" : hr < 12 ? "Доброе утро" : hr < 18 ? "Добрый день" : "Добрый вечер";
-        ImVec2 b0(o.x + kPad, o.y + y - ImGui::GetScrollY()), b1(o.x + w - kPad, b0.y + 168.f);
+        const float heroH = compact() ? 112.f : 168.f;
+        ImVec2 b0(o.x + kPad, o.y + y - ImGui::GetScrollY()), b1(o.x + w - kPad, b0.y + heroH);
         dl->AddRectFilled(b0, b1, alpha(pal_.acc, 0.16f * a), radius(24.f));
         dl->PushClipRect(b0, b1, true);
         float drift = calm() ? 0.f : std::sin(time_ * 0.4f) * 20.f;
@@ -417,13 +418,20 @@ void Ui::viewHome(ImVec2 size) {
         glow(dl, ImVec2(b0.x + 150.f - drift, mid + 20.f), 130.f, pal_.acc, 0.35f * a, 28);
         dl->PopClipRect();
         dl->AddRect(b0, b1, alpha(pal_.acc, 0.25f * a), radius(24.f));
-        float tx = b0.x + 32.f, lift = (1.f - a) * 12.f;
-        drawText(dl, F_.bold, 13.f, ImVec2(tx, b0.y + 30.f + lift), white(0.75f * a),
+        const float padX = (b1.x - b0.x) < 340.f ? 20.f : 32.f;  // hero fit: на узком экране поля поменьше
+        float tx = b0.x + padX, lift = (1.f - a) * 12.f;
+        // заголовок ужимается, если не помещается в карточку (узкие телефоны)
+        const float avail = b1.x - tx - 16.f;
+        float tfs = compact() ? 30.f : 40.f;
+        ImVec2 tm = measure(F_.bold, tfs, "Что послушаем?");
+        if (tm.x > avail) tfs = std::max(20.f, tfs * avail / tm.x);
+        const float k = compact() ? 0.6f : 1.f;
+        drawText(dl, F_.bold, 13.f, ImVec2(tx, b0.y + 30.f * k + lift), white(0.75f * a),
                  app_.acct.loggedIn() ? std::string(hello) + ", " + app_.acct.name() : std::string(hello));
-        drawText(dl, F_.bold, 40.f, ImVec2(tx, b0.y + 50.f + lift), white(0.99f * a), "Что послушаем?");
-        drawText(dl, F_.regular, 15.f, ImVec2(tx, b0.y + 58.f + measure(F_.bold, 40.f, "Ag").y + lift), white(0.72f * a),
-                 ellipsize(F_.regular, 15.f, "Ищите по названию — сразу в Audius, SoundCloud, Internet Archive и YouTube.", b1.x - tx - 32.f));
-        y += 168.f + 22.f;
+        drawText(dl, F_.bold, tfs, ImVec2(tx, b0.y + 50.f * k + lift), white(0.99f * a), "Что послушаем?");
+        drawText(dl, F_.regular, 15.f, ImVec2(tx, b0.y + 50.f * k + 8.f + measure(F_.bold, tfs, "Ag").y + lift), white(0.72f * a),
+                 ellipsize(F_.regular, 15.f, "Ищите по названию — сразу в Audius, SoundCloud, Internet Archive и YouTube Music.", b1.x - tx - 16.f));
+        y += heroH + (compact() ? 14.f : 22.f);
     }
 
     // быстрые действия — три карточки в ряд (на узком окне — столбиком)

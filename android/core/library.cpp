@@ -123,11 +123,6 @@ Segment Library::segmentFor(const Track& t) const {
     return buildSegment(t, base ? base->cuts : none, own ? own->cuts : none);
 }
 
-int Library::cutCount(const Track& t) const {
-    const Track* x = find(t.id);
-    return x ? static_cast<int>(x->cuts.size()) : 0;
-}
-
 // ---------- плейлисты ----------
 Playlist* Library::playlist(const std::string& id) {
     for (auto& p : playlists) if (p.id == id) return &p;

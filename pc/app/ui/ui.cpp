@@ -869,7 +869,7 @@ void Ui::drawToast() {
     double left = app_.toastUntil - app_.now();
     if (left <= 0 || app_.toastText.empty()) return;
     float a = static_cast<float>(std::min(1.0, left / 0.35));
-    float in = easeOut(static_cast<float>(std::min(1.0, (3.8 - left) / 0.3)));
+    float in = easeOut(static_cast<float>(std::min(1.0, (app_.toastLen - left) / 0.3)));
     ImDrawList* fg = ImGui::GetForegroundDrawList();
     float maxW = std::min(560.f, W_.x - 60.f);
     ImVec2 ts = measure(F_.bold, 14.f, app_.toastText, maxW - 40);

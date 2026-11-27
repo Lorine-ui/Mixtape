@@ -24,14 +24,6 @@ struct Segment {
     double visibleLength(double dur) const { return hasLimit && !preview ? limE - limS : dur; }
 };
 
-// Что делать по мере воспроизведения.
-struct TickAction {
-    enum Kind { None, Seek, End } kind = None;
-    double to = 0;
-};
-// pos — позиция, dur — длительность (0, если неизвестна), sinceStart — секунд с начала загрузки.
-TickAction nextAction(const Segment& seg, double pos, double dur, double sinceStart, bool isSet);
-
 // Вырезы трека: свои (родительского трека) + вырезы клипа + сам клип в режиме «cut».
 Segment buildSegment(const Track& t, const std::vector<Cut>& baseCuts, const std::vector<Cut>& ownCuts);
 

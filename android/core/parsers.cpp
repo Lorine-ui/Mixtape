@@ -110,6 +110,65 @@ std::vector<Track> parseYtSearch(const std::string& html) {
     return out;
 }
 
+// YouTube Music: «часы:минуты:секунды» -> секунды (0, если это не время)
+static double clockToSec(const std::string& s) {
+    double total = 0;
+    int cur = 0;
+    bool any = false;
+    for (char ch : s) {
+        if (ch >= '0' && ch <= '9') { cur = cur * 10 + (ch - '0'); any = true; }
+        else if (ch == ':') { total = total * 60 + cur; cur = 0; }
+        else return 0;
+    }
+    return any ? total * 60 + cur : 0;
+}
+
+std::vector<Track> parseYtmSearch(const std::string& body) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject() || !d.has("contents"))
+        throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    std::vector<const Json*> found;
+    walk(d, "musicResponsiveListItemRenderer", found);
+    std::vector<Track> out;
+    for (const Json* v : found) {
+        if (!v->isObject()) continue;
+        std::string vid = (*v)["playlistItemData"]["videoId"].asStr();
+        if (vid.empty())
+            vid = (*v)["overlay"]["musicItemThumbnailOverlayRenderer"]["content"]["musicPlayButtonRenderer"]["playNavigationEndpoint"]["watchEndpoint"]["videoId"].asStr();
+        const auto& cols = (*v)["flexColumns"].items();
+        if (vid.empty() || cols.empty()) continue;
+        std::string title = txt(cols[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]);
+        if (title.empty()) continue;
+        std::string artist;
+        double dur = 0;
+        if (cols.size() > 1) {
+            // вторая строка: «Исполнитель • Альбом • 3:51»; у нескольких исполнителей между именами « & » или «, »
+            const auto& runs = cols[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"].items();
+            bool inArtist = true;
+            std::string last;
+            for (std::size_t i = 0; i < runs.size(); ++i) {
+                std::string s = runs[i]["text"].asStr();
+                if (s == " \xE2\x80\xA2 ") {  // « • »
+                    inArtist = false;
+                    continue;
+                }
+                if (i == 0 && (s == "Song" || s == "Video") && i + 1 < runs.size() && runs[i + 1]["text"].asStr() == " \xE2\x80\xA2 ") continue;
+                if (inArtist) artist += s;
+                else last = s;
+            }
+            dur = clockToSec(last);
+        }
+        Track t = Track::make("youtube", vid);
+        t.title = title;
+        t.artist = stripTopic(artist);
+        t.dur = dur;
+        const auto& th = (*v)["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"].items();
+        if (!th.empty()) t.cover = th.back()["url"].asStr();
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
 PlaylistInfo parseYtPlaylist(const std::string& html) {
     Json d = ytData(html);
     PlaylistInfo pl;
@@ -278,14 +337,6 @@ std::vector<ScTranscoding> scTranscodings(const Json& track) {
     std::vector<ScTranscoding> out;
     for (auto& s2 : all) out.push_back(s2.tc);
     return out;
-}
-
-ScTranscoding scPickTranscoding(const Json& track) {
-    auto v = scTranscodings(track);
-    if (!v.empty()) return v.front();
-    ScTranscoding none;
-    none.auth = track["track_authorization"].asStr();
-    return none;
 }
 
 // ===================================================================

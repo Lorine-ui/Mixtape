@@ -103,18 +103,6 @@ int main() {
         CHECK_EQ(s.cutAt(29.97), -1);  // последние 0.05 с не считаются
         CHECK_EQ(s.cutAt(42), 1);
 
-        TickAction a = nextAction(s, 12, 200, 10, false);
-        CHECK(a.kind == TickAction::Seek && NEAR(a.to, 30));
-        a = nextAction(s, 100, 200, 10, false);
-        CHECK(a.kind == TickAction::None);
-        a = nextAction(s, 199.5, 200, 10, false);
-        CHECK(a.kind == TickAction::End);
-
-        Segment tail;
-        tail.cuts = {{190, 200}};
-        a = nextAction(tail, 191, 200, 10, false);
-        CHECK(a.kind == TickAction::End);  // вырез до самого конца: трек заканчивается
-
         Segment c0;
         c0.cuts = {{0, 5}, {5.04, 9}};
         c0.cuts = mergeCuts(c0.cuts);
@@ -129,8 +117,6 @@ int main() {
         CHECK(NEAR(s.startPos(), 30));
         CHECK(NEAR(s.visibleBase(), 30));
         CHECK(NEAR(s.visibleLength(200), 30));
-        TickAction a = nextAction(s, 59.95, 200, 10, false);
-        CHECK(a.kind == TickAction::End);
 
         Track cut = keep;
         cut.mode = "cut";
@@ -295,6 +281,26 @@ int main() {
         try { parseYtSearch("<html>ничего</html>"); } catch (const std::exception&) { threw = true; }
         CHECK(threw);
 
+        std::string ytm =
+            R"({"contents":{"a":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"Ib91lUpV7EM"},)"
+            R"("thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://s/a.jpg"},{"url":"http://s/b.jpg"}]}}},)"
+            R"("flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Love In Your Eyes"}]}}},)"
+            R"({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Lee"},{"text":" & "},{"text":"Kim"},{"text":" \u2022 "},)"
+            R"({"text":"Lo-fi of Lee"},{"text":" \u2022 "},{"text":"3:51"}]}}}]}},)"
+            R"({"musicResponsiveListItemRenderer":{"flexColumns":[]}}]}})";
+        auto ym = parseYtmSearch(ytm);
+        CHECK_EQ(ym.size(), 1u);
+        if (!ym.empty()) {
+            CHECK_EQ(ym[0].id, std::string("youtube:Ib91lUpV7EM"));
+            CHECK_EQ(ym[0].title, std::string("Love In Your Eyes"));
+            CHECK_EQ(ym[0].artist, std::string("Lee & Kim"));
+            CHECK_EQ(ym[0].dur, 231.0);
+            CHECK_EQ(ym[0].cover, std::string("http://s/b.jpg"));
+        }
+        bool threwM = false;
+        try { parseYtmSearch("<html>ничего</html>"); } catch (const std::exception&) { threwM = true; }
+        CHECK(threwM);
+
         std::string pl =
             "<script>var ytInitialData = {\"header\":{\"playlistHeaderRenderer\":{\"title\":{\"simpleText\":\"Мой микс\"}}},"
             "\"x\":[{\"playlistVideoRenderer\":{\"videoId\":\"aaaaaaaaaaa\",\"title\":{\"simpleText\":\"A - B\"},"
@@ -344,8 +350,8 @@ int main() {
         Json tr = Json::parse(R"({"track_authorization":"AUTH","media":{"transcodings":[
           {"url":"https://api-v2.soundcloud.com/media/x/hls","format":{"protocol":"hls","mime_type":"audio/mpeg"}},
           {"url":"https://api-v2.soundcloud.com/media/x/prog","format":{"protocol":"progressive","mime_type":"audio/mpeg"}}]}})");
-        ScTranscoding tc = scPickTranscoding(tr);
-        CHECK(tc.ok() && tc.progressive && tc.auth == "AUTH");
+        auto tcs = scTranscodings(tr);
+        CHECK(!tcs.empty() && tcs.front().progressive && tcs.front().auth == "AUTH");
 
         CHECK_EQ(songsCount(1), std::string("1 песня"));
         CHECK_EQ(songsCount(3), std::string("3 песни"));
@@ -414,7 +420,6 @@ int main() {
         Segment seg = lib.segmentFor(*base);
         CHECK_EQ(seg.cuts.size(), 1u);  // слились
         CHECK(NEAR(seg.cuts[0].e, 50));
-        CHECK_EQ(lib.cutCount(*base), 1);
 
         Playlist& pl = lib.createPlaylist("Мой");
         pl.ids = {"audius:42", "clip1"};

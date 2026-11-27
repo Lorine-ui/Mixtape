@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Mixtape VERSION 2.0.0 LANGUAGES CXX)
+project(Mixtape VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -66,6 +66,11 @@ if(MX_BUILD_APP AND WIN32)
         resources/mixtape.rc)
     target_include_directories(Mixtape PRIVATE app app/ui app/audio app/net ${miniaudio_SOURCE_DIR} ${stb_SOURCE_DIR})
     target_compile_definitions(Mixtape PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    # Если рядом с mixtape.rc лежит yt-dlp.exe, он вшивается в Mixtape.exe (иначе приложение собирается без него)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/yt-dlp.exe")
+        target_compile_definitions(Mixtape PRIVATE MX_EMBED_YTDLP=1)
+        set_source_files_properties(resources/mixtape.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/yt-dlp.exe")
+    endif()
     target_link_libraries(Mixtape PRIVATE mxnet imgui_lib
         d3d11 dxgi dwmapi winhttp wininet mfplat mfreadwrite mfuuid shlwapi ole32 shell32 comdlg32 user32 gdi32 advapi32 winmm)
     if(MSVC)

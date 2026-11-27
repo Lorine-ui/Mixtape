@@ -105,7 +105,6 @@ std::string compose(const std::string& s) {
 }  // namespace
 
 void setLanguage(int lang) { g_lang = std::clamp(lang, 0, kLangs - 1); }
-int language() { return g_lang; }
 
 int languageFromId(const std::string& id) {
     for (int i = 0; i < kLangs; ++i)

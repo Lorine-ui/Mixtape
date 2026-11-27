@@ -76,7 +76,6 @@ ImFont* pick(ImFont* f, float size, const std::string& s) {
 
 void setTextFonts(const Fonts& f) { g_fonts = f; }
 void setTextScale(float textK, float uiK) { g_textK = textK; g_uiK = uiK; }
-float textScale() { return g_textK; }
 
 void drawText(ImDrawList* dl, ImFont* f, float size, ImVec2 pos, ImU32 col, const std::string& s0, float wrap) {
     if (s0.empty()) return;

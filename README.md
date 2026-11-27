@@ -16,7 +16,7 @@
 
 </div>
 
-Один поиск сразу по Audius, SoundCloud, Internet Archive и YouTube, офлайн-режим, аккаунт с синхронизацией
+Один поиск сразу по Audius, SoundCloud, Internet Archive и YouTube Music, офлайн-режим, аккаунт с синхронизацией
 между компьютером и телефоном, темы оформления и 10 языков интерфейса.
 
 ## Скриншоты
@@ -32,8 +32,8 @@
 
 | Платформа | Файл | Требования |
 |---|---|---|
-| Windows | [**Mixtape.exe**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.exe) | Windows 10/11, 64-бит. Установка не нужна — просто запустите файл |
-| Android | [**Mixtape.apk**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.apk) | Android 10 или новее |
+| Windows | [**Mixtape.exe**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.exe) | Windows 10/11, 64-бит, около 26 МБ. Установка не нужна — просто запустите файл |
+| Android | [**Mixtape.apk**](https://github.com/Lorine-ui/Mixtape/releases/latest/download/Mixtape.apk) | Android 10 или новее, около 40 МБ (внутри Python и yt-dlp) |
 
 **Windows:** при первом запуске SmartScreen может предупредить о неизвестном издателе (у программы нет платной цифровой подписи) —
 нажмите «Подробнее» → «Выполнить в любом случае».
@@ -43,7 +43,8 @@
 
 ## Возможности
 
-- **Поиск везде сразу** — Audius, SoundCloud, Internet Archive и YouTube в одном списке.
+- **Поиск везде сразу** — Audius, SoundCloud, Internet Archive и YouTube Music в одном списке. Песни YouTube Music играют целиком
+  через вшитый [yt-dlp](https://github.com/yt-dlp/yt-dlp); если он не справился, та же песня берётся из других источников.
 - **Офлайн** — скачайте песню или сразу всю «Мою музыку» и слушайте без интернета. Можно добавлять свои MP3, FLAC, WAV.
 - **Аккаунт** — вход по почте; «Моя музыка», плейлисты и профиль одинаковые на компьютере и телефоне.
 - **Профиль** — аватарка, никнейм, «о себе», цвет и рамка.
@@ -55,10 +56,13 @@
 - **Статистика** — сколько часов вы слушаете, любимые песни и исполнители; **подбор похожей музыки** по вашему вкусу.
 - Таймер сна, медиаклавиши, работа в свёрнутом окне, полноэкранный режим, танцующая Тето (можно заменить своей картинкой или GIF).
 - **10 языков**: русский, English, українська, español, Deutsch, français, português, italiano, polski, Türkçe.
+- **Любые экраны** — узкие и широкие телефоны, горизонтальный режим (вкладки и проигрыватель перестраиваются), планшеты.
 
 ## Ограничения
 
 - Песни из интернета зависят от сторонних сайтов: если SoundCloud или YouTube что-то меняют у себя, часть песен может временно не играть.
+- YouTube Music: первая песня грузится дольше обычного (запуск yt-dlp, на телефоне ещё распаковка Python и, при необходимости,
+  обновление yt-dlp с GitHub). Вшитый yt-dlp со временем устаревает: на ПК положите свежий `yt-dlp.exe` рядом с `Mixtape.exe`.
 - Синхронизируются списки песен, а не сами аудиофайлы: свои MP3 остаются на том устройстве, куда их добавили.
 - Версий для iPhone и Mac пока нет.
 
@@ -68,7 +72,6 @@
 |---|---|
 | [`pc/`](pc) | Версия для Windows (C++17, Dear ImGui, DirectX 11, miniaudio, WinHTTP, Media Foundation) |
 | [`android/`](android) | Версия для Android (тот же C++ плюс OpenGL ES, NDK и небольшая обёртка на Java) |
-| [`download/`](download) | Копия готовых сборок (скачивать лучше со страницы [выпусков](https://github.com/Lorine-ui/Mixtape/releases/latest)) |
 
 ### Сборка для Windows
 
@@ -81,12 +84,14 @@ cmake --build build --config Release
 ```
 
 Или просто запустите `pc\build.bat`. При первой настройке CMake сам скачает Dear ImGui, miniaudio и stb.
+Чтобы вшить yt-dlp, положите `yt-dlp.exe` в `pc/resources/` перед сборкой (в репозиторий он не входит); без него exe собирается как обычно.
 Подробнее — в [pc/README.md](pc/README.md).
 
 ### Сборка для Android
 
 Нужны JDK 17, Android SDK 34, NDK 26.3, CMake 3.22 и Gradle 8.7 в папке `%USERPROFILE%\Android`.
-Запустите `android\android\build_apk.bat` — готовый `Mixtape.apk` появится в папке `android`.
+Запустите `android\android\build_apk.bat` — готовый `Mixtape.apk` появится в папке `android`. Gradle сам скачает библиотеку
+youtubedl-android (около 60 МБ), поэтому нужен интернет.
 Подробнее — в [android/ANDROID.md](android/ANDROID.md).
 
 ### Аккаунты
@@ -106,8 +111,12 @@ ctest --test-dir b -C Release
 
 ## Лицензия
 
-Код распространяется по лицензии [MIT](LICENSE): его можно свободно использовать, изменять и распространять с указанием автора.
+Код Mixtape распространяется по лицензии [MIT](LICENSE): его можно свободно использовать, изменять и распространять с указанием автора.
 Сторонние библиотеки, которые скачиваются при сборке (Dear ImGui, miniaudio, stb), — под своими лицензиями.
+
+**Сборка для Windows** содержит [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense). Состав его официального exe и лицензии компонентов — в [THIRD_PARTY_LICENSES.txt](https://github.com/yt-dlp/yt-dlp/blob/master/THIRD_PARTY_LICENSES.txt) проекта yt-dlp.
+
+**Сборка для Android** содержит библиотеку [youtubedl-android](https://github.com/yausername/youtubedl-android) (Python, yt-dlp, QuickJS), которая распространяется по **GPL-3.0**. Поэтому APK целиком выпускается на условиях GPL-3.0 (текст — [android/LICENSE-GPL-3.0.txt](android/LICENSE-GPL-3.0.txt)); исходный код приложения полностью открыт и лежит в этом репозитории.
 
 ## Поддержать автора
 
