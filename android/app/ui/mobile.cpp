@@ -216,10 +216,13 @@ void Ui::modalMore(ImVec2 o, ImVec2 sz) {
         y += 56;
         return hh.clicked;
     };
-    if (item("##mAcct", Icon::User, "Аккаунт", app_.acct.loggedIn() ? app_.acct.name() : "Войдите — музыка будет на всех устройствах"))
-        openModal(Modal::Account);
+    if (item("##mAcct", Icon::User, "Профиль", app_.acct.name())) openModal(Modal::Profile);
     if (item("##mRec", Icon::Sparkle, "Для вас", "Похожее на то, что вы слушаете")) { closeModal(); app_.openView(ViewKind::ForYou); }
     if (item("##mStat", Icon::Chart, "Статистика", "Сколько и что вы слушаете")) { closeModal(); app_.openView(ViewKind::Stats); }
+    if (item("##mFr", Icon::User, "Друзья", app_.friendsBadge() > 0 ? "Есть новое" : "Рекомендуйте песни друзьям")) {
+        closeModal();
+        app_.openFriends();
+    }
     if (item("##mClips", Icon::Scissors, "Фрагменты", "Кусочки песен")) { closeModal(); app_.openView(ViewKind::Clips); }
     if (item("##mRnd", Icon::Dice, "Случайная песня", "Удивите себя")) { closeModal(); app_.randomSong(); }
     if (item("##mImp", Icon::Import, "Перенести плейлист", "Spotify, YouTube, SoundCloud")) { importLink_.clear(); openModal(Modal::Import); }

@@ -7,6 +7,7 @@
 #include <string>
 
 #include "cuts.hpp"
+#include "discord_rpc.hpp"
 #include "json.hpp"
 #include "library.hpp"
 #include "model.hpp"
@@ -14,6 +15,7 @@
 #include "queue.hpp"
 #include "stats.hpp"
 #include "cloudsync.hpp"
+#include "share.hpp"
 #include "rank.hpp"
 #include "text.hpp"
 
@@ -301,6 +303,94 @@ int main() {
         try { parseYtmSearch("<html>ничего</html>"); } catch (const std::exception&) { threwM = true; }
         CHECK(threwM);
 
+        // исполнитель: имя из «A, B & C feat. D»
+        CHECK_EQ(firstArtist("Lee & Kim"), std::string("Lee"));
+        CHECK_EQ(firstArtist("Lee, Kim"), std::string("Lee"));
+        CHECK_EQ(firstArtist("Lee Feat. Kim"), std::string("Lee"));
+        CHECK_EQ(firstArtist("Lee x Kim"), std::string("Lee"));
+        CHECK_EQ(firstArtist("Max Rox"), std::string("Max Rox"));  // « x» внутри слова не режет
+        CHECK_EQ(firstArtist("AC/DC"), std::string("AC/DC"));
+        CHECK_EQ(firstArtist(""), std::string(""));
+
+        // поиск исполнителя: берётся тот, чьё имя совпало, не просто первый
+        std::string ytmA =
+            R"({"contents":{"a":[)"
+            R"({"musicResponsiveListItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"UCaaa"}},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Arcane"}]}}}]}},)"
+            R"({"musicResponsiveListItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"UCbbb"}},"thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://s/a=w60-h60-p-l90-rj"},{"url":"http://s/a=w120-h120-p-l90-rj"}]}}},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Imagine Dragons"}]}}}]}},)"
+            R"({"musicResponsiveListItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_x"}},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Альбом"}]}}}]}}]}})";
+        CHECK_EQ(parseYtmArtistSearch(ytmA, "imagine dragons").id, std::string("UCbbb"));
+        CHECK_EQ(parseYtmArtistSearch(ytmA, "imagine dragons").cover, std::string("http://s/a=w400-h400-p-l90-rj"));
+        CHECK_EQ(parseYtmArtistSearch(ytmA, "Нет такого").id, std::string("UCaaa"));
+        CHECK_EQ(parseYtmArtistSearch(ytmA, "Нет такого", true).id, std::string(""));  // строго: только точное имя
+        CHECK_EQ(parseYtmArtistSearch(ytmA, "IMAGINE DRAGONS", true).id, std::string("UCbbb"));
+        CHECK_EQ(parseYtmArtistSearch(R"({"contents":{}})", "x").id, std::string(""));
+
+        // страница исполнителя: заголовок, песни, альбомы и «Все …»
+        std::string ytmP =
+            R"({"contents":{"h":{"musicImmersiveHeaderRenderer":{"title":{"runs":[{"text":"Imagine Dragons"}]},)"
+            R"("thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://s/art.jpg"}]}}}}},)"
+            R"("s":{"musicShelfRenderer":{"bottomEndpoint":{"browseEndpoint":{"browseId":"VLOLAKtop"}},"contents":[)"
+            R"({"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"Kx7B-XvmFtE"},"flexColumns":[)"
+            R"({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Believer"}]}}},)"
+            R"({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Imagine Dragons"}]}}}],)"
+            R"("fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"3:25"}]}}}]}}]}},)"
+            R"("c1":{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Albums"}]}}},"contents":[)"
+            R"({"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Evolve"}]},"subtitle":{"runs":[{"text":"2017"}]},)"
+            R"("navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_evolve"}},)"
+            R"("thumbnailRenderer":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://s/e1.jpg"},{"url":"http://s/e2.jpg"}]}}}}},)"
+            R"({"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Не альбом"}]},"navigationEndpoint":{"browseEndpoint":{"browseId":"UCxxx"}}}}]}},)"
+            R"("c2":{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Singles & EPs"}]},)"
+            R"("moreContentButton":{"buttonRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"MPADUCbbb","params":"ggM"}}}}}},"contents":[)"
+            R"({"musicTwoRowItemRenderer":{"title":{"runs":[{"text":"Thunder"}]},"subtitle":{"runs":[{"text":"Single • 2017"}]},)"
+            R"("navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_thunder"}}}}]}},)"
+            R"("c3":{"musicCarouselShelfRenderer":{"header":{"musicCarouselShelfBasicHeaderRenderer":{"title":{"runs":[{"text":"Videos"}]}}},"contents":[]}}}})";
+        YtmArtistPage ap = parseYtmArtist(ytmP);
+        CHECK_EQ(ap.name, std::string("Imagine Dragons"));
+        CHECK_EQ(ap.cover, std::string("http://s/art.jpg"));
+        CHECK_EQ(ap.songsId, std::string("VLOLAKtop"));
+        CHECK_EQ(ap.songs.size(), 1u);
+        if (!ap.songs.empty()) {
+            CHECK_EQ(ap.songs[0].id, std::string("youtube:Kx7B-XvmFtE"));
+            CHECK_EQ(ap.songs[0].artist, std::string("Imagine Dragons"));
+            CHECK_EQ(ap.songs[0].dur, 205.0);
+        }
+        CHECK_EQ(ap.albums.size(), 1u);  // карточка со ссылкой на исполнителя не считается альбомом
+        if (!ap.albums.empty()) {
+            CHECK_EQ(ap.albums[0].id, std::string("MPREb_evolve"));
+            CHECK_EQ(ap.albums[0].title, std::string("Evolve"));
+            CHECK_EQ(ap.albums[0].cover, std::string("http://s/e2.jpg"));
+        }
+        CHECK_EQ(ap.singles.size(), 1u);
+        CHECK_EQ(ap.singlesId, std::string("MPADUCbbb"));
+        CHECK_EQ(ap.singlesParams, std::string("ggM"));
+        CHECK(ap.albumsId.empty());
+        bool threwA = false;
+        try { parseYtmArtist("<html>ничего</html>"); } catch (const std::exception&) { threwA = true; }
+        CHECK(threwA);
+        CHECK_EQ(parseYtmAlbums(ytmP).size(), 2u);
+
+        // альбом: у строк нет исполнителя и обложки — берутся из заголовка; повтор одной песни отбрасывается
+        std::string ytmAl =
+            R"({"contents":{"h":{"musicResponsiveHeaderRenderer":{"title":{"runs":[{"text":"Evolve"}]},"subtitle":{"runs":[{"text":"Album"},{"text":" • "},{"text":"2017"}]},)"
+            R"("straplineTextOne":{"runs":[{"text":"Imagine Dragons - Topic"}]},)"
+            R"("thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://s/cov.jpg"}]}}}}},"l":[)"
+            R"({"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"aaaaaaaaaaa"},"flexColumns":[)"
+            R"({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Thunder"}]}}},)"
+            R"({"musicResponsiveListItemFlexColumnRenderer":{}}],)"
+            R"("fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"3:08"}]}}}]}},)"
+            R"({"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"aaaaaaaaaaa"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Thunder"}]}}}]}},)"
+            R"({"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Недоступна"}]}}}]}}]}})";
+        YtmAlbumPage al = parseYtmAlbum(ytmAl);
+        CHECK_EQ(al.title, std::string("Evolve"));
+        CHECK_EQ(al.artist, std::string("Imagine Dragons"));
+        CHECK_EQ(al.year, std::string("2017"));
+        CHECK_EQ(al.tracks.size(), 1u);
+        if (!al.tracks.empty()) {
+            CHECK_EQ(al.tracks[0].artist, std::string("Imagine Dragons"));
+            CHECK_EQ(al.tracks[0].cover, std::string("http://s/cov.jpg"));
+            CHECK_EQ(al.tracks[0].dur, 188.0);
+        }
+
         std::string pl =
             "<script>var ytInitialData = {\"header\":{\"playlistHeaderRenderer\":{\"title\":{\"simpleText\":\"Мой микс\"}}},"
             "\"x\":[{\"playlistVideoRenderer\":{\"videoId\":\"aaaaaaaaaaa\",\"title\":{\"simpleText\":\"A - B\"},"
@@ -475,6 +565,20 @@ int main() {
         CHECK(!back.has("local:file2"));
         CHECK_EQ(back.getStr("theme", ""), std::string("ocean"));
 
+        // перенос из папки старой версии: свои файлы и офлайн-метки остаются
+        Library oldLib;
+        Track off1 = mkTrack("audius", "9", "Скачанная", "Исп");
+        off1.off = true;
+        off1.offSize = 1234;
+        oldLib.add(off1);
+        oldLib.add(mkTrack("local", "mine.mp3", "Моя запись", ""));
+        Library fresh;
+        Library::MergeStats mk = fresh.mergeBackup(oldLib.toJson(), true);
+        CHECK(mk.ok);
+        CHECK_EQ(mk.tracks, 2);
+        CHECK(fresh.has("local:mine.mp3"));
+        CHECK(fresh.find("audius:9") && fresh.find("audius:9")->off && fresh.find("audius:9")->offSize == 1234);
+
         Library broken;
         CHECK(!broken.load("нет_такого_файла.json", &err));
         std::remove(path.c_str());
@@ -553,6 +657,10 @@ int main() {
         CHECK(r.avatar.empty());
         CHECK_EQ(r.color, 7);
         CHECK_EQ(Profile::fromJson(Json()).frame, 1);
+        p.frame = Profile::kFrameCount - 1;
+        CHECK_EQ(Profile::fromJson(p.toJson()).frame, Profile::kFrameCount - 1);
+        p.frame = 99;
+        CHECK_EQ(Profile::fromJson(p.toJson()).frame, Profile::kFrameCount - 1);  // лишнее обрезается
     });
 
     run("аккаунт: что уходит в облако, замена и объединение", [] {
@@ -616,6 +724,111 @@ int main() {
         CHECK_EQ(pc3.getStr("theme", ""), std::string("ocean"));
         CHECK(std::find(pc3.playlists[0].ids.begin(), pc3.playlists[0].ids.end(), c.id) != pc3.playlists[0].ids.end());
         CHECK(!applyCloud(pc3, Json::parse("{\"x\":1}"), false));
+    });
+
+    run("discord: строки, кадры и JSON", [] {
+        // строки: по символам, не короче двух, длинные обрезаются многоточием
+        CHECK_EQ(clipForDiscord("Песня"), std::string("Песня"));
+        CHECK_EQ(clipForDiscord(std::string(300, 'a'), 128).size(), 127u + 3u);  // 127 символов и «…» (3 байта)
+        std::string ru;
+        for (int i = 0; i < 200; ++i) ru += "ы";
+        std::string cl = clipForDiscord(ru, 128);
+        CHECK_EQ(decodeUtf8(cl).size(), 128u);  // обрезка не рвёт русские буквы посередине
+        CHECK(decodeUtf8(clipForDiscord("a")).size() >= 2);   // слишком короткую строку Discord не примет
+        CHECK(decodeUtf8(clipForDiscord("")).size() >= 2);
+
+        // кадр: 4 байта код, 4 байта длина, little-endian
+        std::string f = discordFrame(kOpFrame, "{\"a\":1}");
+        CHECK_EQ(f.size(), 8u + 7u);
+        CHECK(static_cast<unsigned char>(f[0]) == 1 && f[1] == 0 && f[2] == 0 && f[3] == 0);
+        CHECK(static_cast<unsigned char>(f[4]) == 7 && f[5] == 0 && f[6] == 0 && f[7] == 0);
+        CHECK_EQ(f.substr(8), std::string("{\"a\":1}"));
+        CHECK(static_cast<unsigned char>(discordFrame(kOpHandshake, "")[0]) == 0);
+
+        Json hs = Json::parse(discordHandshake("123456789012345678"));
+        CHECK(NEAR(hs["v"].asNum(), 1) && hs["client_id"].asStr() == "123456789012345678");
+
+        DiscordActivity a;
+        a.title = "Дьявол";
+        a.artist = "ARKUSHA";
+        a.coverUrl = "https://example.com/c.jpg";
+        a.startSec = 1700000000;
+        a.endSec = 1700000200;
+        a.buttonLabel = "Скачать Mixtape";
+        a.buttonUrl = "https://example.com/get";
+        Json j = Json::parse(discordSetActivity(a, 4321, "n1"));
+        CHECK_EQ(j["cmd"].asStr(), std::string("SET_ACTIVITY"));
+        CHECK_EQ(j["nonce"].asStr(), std::string("n1"));
+        CHECK(NEAR(j["args"]["pid"].asNum(), 4321));
+        const Json& act = j["args"]["activity"];
+        CHECK(NEAR(act["type"].asNum(), 2));  // «Слушает»
+        CHECK_EQ(act["details"].asStr(), std::string("Дьявол"));
+        CHECK_EQ(act["state"].asStr(), std::string("ARKUSHA"));
+        CHECK(NEAR(act["timestamps"]["start"].asNum(), 1700000000) && NEAR(act["timestamps"]["end"].asNum(), 1700000200));
+        CHECK_EQ(act["assets"]["large_image"].asStr(), std::string("https://example.com/c.jpg"));
+        CHECK_EQ(act["buttons"].size(), 1u);
+        CHECK_EQ(act["buttons"].at(0)["url"].asStr(), std::string("https://example.com/get"));
+
+        // без обложки, конца и кнопки лишних полей нет; адрес не по https не принимаем
+        DiscordActivity b;
+        b.title = "Song";
+        b.coverUrl = "http://insecure/c.jpg";
+        b.buttonLabel = "x";
+        b.buttonUrl = "http://insecure";
+        Json jb = Json::parse(discordSetActivity(b, 1, "n2"));
+        const Json& ab = jb["args"]["activity"];
+        CHECK(!ab.has("assets") && !ab.has("buttons") && !ab.has("timestamps"));
+        CHECK_EQ(ab["state"].asStr(), std::string("Mixtape"));  // исполнителя нет
+
+        Json jc = Json::parse(discordClearActivity(9, "n3"));
+        CHECK(!jc["args"].has("activity") && NEAR(jc["args"]["pid"].asNum(), 9));
+    });
+
+    run("ссылки: друзья и рекомендации без сервера", [] {
+        ShareFriend f;
+        f.id = "k3x9";
+        f.name = "Алиса";
+        f.status = "слушаю джаз";
+        f.color = 3;
+        f.frame = 9;
+        std::string link = makeFriendLink(f);
+        CHECK(link.rfind("https://github.com/Lorine-ui/Mixtape#mx-", 0) == 0);
+        CHECK(link.substr(link.find("#mx-") + 4).find_first_of("+/= ") == std::string::npos);  // хвост без символов, ломающих ссылку
+        ShareParsed p = parseShareText("Привет! Добавь меня в Mixtape: " + link + " жду!");
+        CHECK(p.kind == ShareKind::Friend);
+        CHECK_EQ(p.person.id, std::string("k3x9"));
+        CHECK_EQ(p.person.name, std::string("Алиса"));
+        CHECK_EQ(p.person.status, std::string("слушаю джаз"));
+        CHECK_EQ(p.person.color, 3);
+        CHECK_EQ(p.person.frame, 9);
+
+        ShareSong s;
+        s.fromId = "k3x9";
+        s.fromName = "Алиса";
+        s.note = "тебе зайдёт";
+        s.track = Track::make("youtube", "Kx7B-XvmFtE");
+        s.track.title = "Believer";
+        s.track.artist = "Imagine Dragons";
+        s.track.dur = 205;
+        s.track.off = true;  // чужие офлайн-метки не передаются
+        ShareParsed q = parseShareText(makeSongLink(s));
+        CHECK(q.kind == ShareKind::Song);
+        CHECK_EQ(q.song.track.id, std::string("youtube:Kx7B-XvmFtE"));
+        CHECK_EQ(q.song.track.title, std::string("Believer"));
+        CHECK_EQ(q.song.fromName, std::string("Алиса"));
+        CHECK_EQ(q.song.note, std::string("тебе зайдёт"));
+        CHECK(!q.song.track.off);
+
+        s.track = Track::make("local", "file.mp3");
+        s.track.title = "Свой файл";
+        CHECK(parseShareText(makeSongLink(s)).kind == ShareKind::None);  // файл только у отправителя
+
+        CHECK(parseShareText("").kind == ShareKind::None);
+        CHECK(parseShareText("просто текст #mx-").kind == ShareKind::None);
+        CHECK(parseShareText("https://x.y#mx-!!!!").kind == ShareKind::None);
+        CHECK(parseShareText(link.substr(0, link.size() - 7)).kind == ShareKind::None);  // обрезанная ссылка
+        std::string raw;
+        CHECK(base64UrlDecode(base64UrlEncode("\xFB\xFF\xFE"), raw) && raw == "\xFB\xFF\xFE");
     });
 
     std::printf("\nПроверок: %d, провалов: %d\n", g_all, g_fail);

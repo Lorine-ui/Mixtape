@@ -59,6 +59,9 @@ public:
     std::vector<Track> scRelated(const std::string& permalink, int n = 20);
     std::vector<Track> iaSearch(const std::string& q);
     std::vector<Track> ytSearch(const std::string& q, int n = 10);
+    // Страница исполнителя на YouTube Music: песни, альбомы, синглы. Бросает, если исполнителя там нет.
+    YtmArtistPage ytArtist(const std::string& name, bool exactOnly = false);
+    YtmAlbumPage ytAlbum(const std::string& browseId);
     // Необязательный внешний загрузчик звука YouTube (на ПК это yt-dlp). Не задан или бросил — работает встроенный способ.
     std::function<AudioBlob(const std::string& videoId, const ProgressFn&, const std::atomic<bool>*)> ytExternal;
     // Почему внешний загрузчик (yt-dlp) в последний раз не справился; пусто, если справился.
@@ -88,6 +91,7 @@ public:
 private:
     std::string get(const std::string& url, const std::vector<std::pair<std::string, std::string>>& h = {}, int timeoutMs = 15000);
     Json getJson(const std::string& url, int timeoutMs = 15000);
+    std::string ytmPost(const std::string& endpoint, Json body);  // запрос к YouTube Music (search, browse), тело ответа
     std::string audiusHost();
     Json audiusJson(const std::string& path);
     std::string scClient(bool force);

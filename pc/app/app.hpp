@@ -18,6 +18,7 @@
 
 #include "audio/player.hpp"
 #include "library.hpp"
+#include "share.hpp"
 #include "net/net.hpp"
 #include "queue.hpp"
 #include "cloudsync.hpp"
@@ -30,6 +31,7 @@ struct Platform {
     std::function<std::vector<std::string>()> pickAudioFiles;                       // пути в UTF-8
     std::function<std::string(const std::string& defName)> pickSavePath;           // пусто — отмена
     std::function<std::string()> pickOpenPath;                                      // файл копии/картинки
+    std::function<std::vector<std::string>()> legacyDirs;                          // папки, где может лежать библиотека старой версии
     std::function<bool()> isOnline;
     std::function<void(const std::string&)> copyText;
     std::function<std::string(const std::string& name)> resource;  // встроенные в .exe файлы (teto.png)
@@ -41,27 +43,36 @@ struct Platform {
     // yt-dlp (только ПК): песни YouTube Music целиком. Не заданы — используется встроенный способ.
     std::function<AudioBlob(const std::string& videoId, const ProgressFn&, const std::atomic<bool>*)> ytDlpFetch;
     std::function<bool()> hasYtDlp;
+    bool hasDiscord = false;  // в Discord можно показывать, что играет (задан ID приложения, см. discord_config.hpp)
     std::function<std::string()> pickImage;                          // png/jpg/gif/bmp; пусто — отмена
 
 };
 
-// Аккаунт (синхронизация библиотеки через Firebase)
+// Профиль на этом устройстве (никнейм, фото, оформление, рамка). Ничего не уходит на сервер.
 struct AccountState {
-    std::string email, uid, refresh;  // refresh — долгоживущий ключ входа; пароль нигде не хранится
-    long long syncedAt = 0;           // время версии в облаке, с которой мы последний раз совпадали (мс)
-    bool dirty = false;               // здесь есть изменения, ещё не отправленные в облако
-    bool busy = false, syncing = false;
-    std::string status, error;
-    double lastTry = -1000, lastOk = -1;  // время приложения (App::now())
-    Profile prof;                     // никнейм, аватарка, оформление
-    bool profDirty = false, profSyncing = false;
-    double profEditAt = -1000;
-    int avatarVer = 0;                // растёт при каждой смене аватарки (интерфейс перезагружает картинку)
-    bool loggedIn() const { return !uid.empty(); }
-    std::string name() const { return displayName(prof, email); }
+    Profile prof;
+    int avatarVer = 0;  // растёт при каждой смене аватарки (интерфейс перезагружает картинку)
+    std::string name() const {
+        std::string n = displayName(prof, "");
+        return n.empty() ? "Гость" : n;
+    }
 };
 
-enum class ViewKind { Home, Search, Library, Playlist, Clips, Offline, Stats, ForYou };
+// Друг: добавляется ссылкой-приглашением (без сервера)
+struct FriendContact {
+    std::string id, name, status;
+    int color = 0, frame = 1;
+    long long added = 0;
+};
+
+// Песня, которую прислал друг
+struct Recommendation {
+    std::string key, fromName, note;
+    Track track;
+    long long t = 0;
+};
+
+enum class ViewKind { Home, Search, Library, Playlist, Clips, Offline, Stats, ForYou, Artist, Album, Friends };
 
 struct ImportState {
     bool running = false, done = false;
@@ -107,15 +118,9 @@ public:
     std::string recsBasis;   // «Похоже на: исполнитель, исполнитель»
     void loadRecs(bool force);
 
-    // ---- аккаунт (cloud.cpp) ----
+    // ---- профиль (social.cpp): хранится на этом устройстве ----
     AccountState acct;
-    bool cloudConfigured() const;
-    void cloudSignIn(const std::string& email, const std::string& password, bool create);
-    void cloudSignOut();
-    void cloudResetPassword(const std::string& email);
-    void cloudSync(bool userAsked);
-    // профиль: правка сразу сохраняется и через пару секунд уходит в облако
-    void profileChanged();
+    void profileChanged();                         // правка сохраняется сразу
     void setAvatar(const std::string& base64Rgb);  // пусто — убрать
     bool trendingLoading = false;
     void loadTrending();
@@ -147,6 +152,37 @@ public:
     std::vector<SourceStatus> sourceStatus;
     std::vector<Track> linkTracks;  // найденный по ссылке плейлист SoundCloud
     std::string linkName;
+
+    // ---- страница исполнителя и альбома (YouTube Music) ----
+    struct ArtistView {
+        std::string name, cover, error;  // name: как просили, после загрузки — как назвал YouTube Music
+        std::vector<Track> songs;
+        std::vector<YtmAlbum> albums, singles;
+        bool loading = false;
+    } artist;
+    struct AlbumView {
+        std::string id, title, artist, year, cover, error;
+        std::vector<Track> tracks;
+        bool loading = false;
+    } album;
+    // Имя из подписи песни; из «A & B» берётся первый. strict — имя из чужого источника: открываем, только если
+    // на YouTube Music есть исполнитель с точно таким именем, иначе показываем обычный поиск.
+    void openArtist(const std::string& names, bool strict = false);
+    void openAlbum(const YtmAlbum& a);
+
+    // ---- друзья и рекомендации ссылкой (social.cpp): всё на этом устройстве, без сервера ----
+    std::vector<FriendContact> friendList;
+    std::vector<Recommendation> inbox;                      // песни от друзей, которые вы ещё не убрали
+    int friendsBadge() const { return static_cast<int>(inbox.size()); }
+    void openFriends();
+    std::string myFriendLink() const;                       // ссылка-приглашение: её отправляют другу
+    bool handleShare(const std::string& text);              // вставили ссылку (друг или песня); false — это не ссылка Mixtape
+    void shareSong(const Track& t);                         // скопировать ссылку на песню для друга
+    void friendRemove(const std::string& id);
+    void recPlay(const Recommendation& r);
+    void recSave(const Recommendation& r);                  // в «Мою музыку» и убрать из рекомендаций
+    void recDismiss(const std::string& key);
+
     void openView(ViewKind v, const std::string& playlistId = "");
     void search(const std::string& text);  // текст или ссылка
     std::vector<const Track*> currentList() const;  // что показывается в списке
@@ -226,7 +262,14 @@ public:
     // ---- данные ----
     void saveBackup();
     void loadBackup();
-    void touch() { dirty_ = true; lastChange_ = now(); if (acct.loggedIn()) acct.dirty = true; }
+    // перенос из старой версии на этом же устройстве
+    struct LegacySource { std::string dir; int tracks = 0, playlists = 0; };
+    std::vector<LegacySource> legacy;      // найденные библиотеки старых версий
+    void scanLegacy();
+    void importLegacy(const std::string& dir);
+    void importLegacyFile();
+    void loadBackupJson(const Json& j);
+    void touch() { dirty_ = true; lastChange_ = now(); }
     std::string audioFilePath(const std::string& name) const;
 
     // ---- системные кнопки ----
@@ -251,16 +294,10 @@ private:
     std::shared_ptr<Library> snapshot(bool full) const;
 
     std::unique_ptr<IHttp> http_;
-    // аккаунт
-    std::mutex acctMu_;
-    std::string idToken_;          // ключ входа на час
-    long long idTokenExp_ = 0;
-    void cloudLoadState();
-    void cloudSaveState();
-    void cloudTick();
-    Json cloudAuthPost(const std::string& url, const std::string& body, const std::string& contentType);
-    std::string cloudToken(std::string refresh);
-    void cloudPushProfile();
+    // профиль и друзья (social.cpp)
+    void socialLoad();
+    void socialSave();
+    std::string myId_;   // мой случайный номер для приглашений
     std::unique_ptr<Net> net_;
     std::map<std::string, Track> cache_;   // треки из поиска (ещё не в библиотеке)
     std::set<std::string> seenRandom_;
@@ -281,6 +318,7 @@ private:
 
     std::atomic<int> loadToken_{0};
     std::atomic<int> searchToken_{0};
+    std::atomic<int> artistToken_{0}, albumToken_{0};
     std::atomic<int> lyToken_{0};
     std::shared_ptr<std::atomic<bool>> cancelLoad_ = std::make_shared<std::atomic<bool>>(false);
     int fails_ = 0;

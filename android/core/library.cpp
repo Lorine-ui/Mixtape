@@ -219,7 +219,7 @@ bool Library::load(const std::string& path, std::string* err) {
 
 bool Library::save(const std::string& path, std::string* err) const { return writeFileAtomic(path, toJson().dump(), err); }
 
-Library::MergeStats Library::mergeBackup(const Json& j) {
+Library::MergeStats Library::mergeBackup(const Json& j, bool keepFiles) {
     MergeStats st;
     if (!j.isObject() || j["app"].asStr() != "mixtape") return st;
     st.ok = true;
@@ -227,9 +227,11 @@ Library::MergeStats Library::mergeBackup(const Json& j) {
     for (std::size_t i = 0; i < tr.size(); ++i) {
         Track t = trackFromJson(tr.items()[i]);
         if (t.id.empty()) t.id = tr.keys()[i];
-        if (t.id.empty() || tracks.count(t.id) || t.source == "local") continue;
-        t.off = false;
-        t.offSize = 0;
+        if (t.id.empty() || tracks.count(t.id) || (t.source == "local" && !keepFiles)) continue;
+        if (!keepFiles) {
+            t.off = false;
+            t.offSize = 0;
+        }
         if (!isValidSource(t.source)) continue;
         tracks[t.id] = std::move(t);
         ++st.tracks;

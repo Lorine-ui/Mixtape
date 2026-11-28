@@ -27,7 +27,8 @@ struct Profile {
     std::string name;    // никнейм; пусто — имя из почты
     std::string status;  // «о себе»
     int color = 0;       // цвет кружка: 0 — цвет темы, 1..7 — свои
-    int frame = 1;       // рамка аватарки: 0 — нет, 1 — кольцо, 2 — неон
+    static constexpr int kFrameCount = 12;  // рамок аватарки: 0 — нет, 1 — кольцо, 2 — неон, дальше украшения (см. Ui::kFrameNames)
+    int frame = 1;       // номер рамки
     std::string avatar;  // RGB-пиксели в base64; пусто — первая буква имени
     long long updated = 0;  // время последней правки (мс) — новее побеждает при синхронизации
 

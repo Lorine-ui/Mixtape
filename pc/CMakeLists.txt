@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Mixtape VERSION 1.1.0 LANGUAGES CXX)
+project(Mixtape VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,7 +17,7 @@ endif()
 # ---------- ядро: чистый C++17, собирается и проверяется где угодно ----------
 add_library(mxcore STATIC
     core/json.cpp core/text.cpp core/model.cpp core/parsers.cpp core/rank.cpp
-    core/cuts.cpp core/queue.cpp core/library.cpp core/mixer.cpp core/stats.cpp core/cloudsync.cpp)
+    core/cuts.cpp core/queue.cpp core/library.cpp core/mixer.cpp core/stats.cpp core/cloudsync.cpp core/share.cpp core/discord_rpc.cpp)
 target_include_directories(mxcore PUBLIC core)
 
 # ---------- сеть: HTTP через интерфейс IHttp ----------
@@ -42,6 +42,12 @@ if(MX_BUILD_TESTS)
     add_test(NAME core COMMAND mxtests)
     add_test(NAME net COMMAND test_net)
     add_test(NAME mixer COMMAND test_mixer)
+    if(WIN32)  # связь с Discord идёт по именованной трубе Windows: проверяем на подставном «Discord»
+        add_executable(test_discord tests/test_discord.cpp app/discord_win32.cpp)
+        target_include_directories(test_discord PRIVATE app)
+        target_link_libraries(test_discord PRIVATE mxcore)
+        add_test(NAME discord COMMAND test_discord)
+    endif()
 endif()
 
 # ---------- приложение ----------
@@ -59,8 +65,8 @@ if(MX_BUILD_APP AND WIN32)
     target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imgui_SOURCE_DIR}/misc/cpp)
 
     add_executable(Mixtape WIN32
-        app/main_win32.cpp app/app.cpp app/cloud.cpp
-        app/audio/player.cpp app/audio/mf_decode.cpp app/net/http_winhttp.cpp
+        app/main_win32.cpp app/app.cpp app/social.cpp
+        app/audio/player.cpp app/audio/mf_decode.cpp app/net/http_winhttp.cpp app/discord_win32.cpp
         app/ui/ui.cpp app/ui/views.cpp app/ui/fullplayer.cpp app/ui/modals.cpp
         app/ui/draw.cpp app/ui/textures.cpp app/ui/i18n.cpp
         resources/mixtape.rc)

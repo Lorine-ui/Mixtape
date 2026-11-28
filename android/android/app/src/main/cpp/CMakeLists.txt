@@ -23,10 +23,10 @@ target_include_directories(native_app_glue PUBLIC ${ANDROID_NDK}/sources/android
 add_library(mixtape SHARED
     # ядро и сеть
     ${MX}/core/json.cpp ${MX}/core/text.cpp ${MX}/core/model.cpp ${MX}/core/parsers.cpp ${MX}/core/rank.cpp
-    ${MX}/core/cuts.cpp ${MX}/core/queue.cpp ${MX}/core/library.cpp ${MX}/core/mixer.cpp ${MX}/core/stats.cpp ${MX}/core/cloudsync.cpp
+    ${MX}/core/cuts.cpp ${MX}/core/queue.cpp ${MX}/core/library.cpp ${MX}/core/mixer.cpp ${MX}/core/stats.cpp ${MX}/core/cloudsync.cpp ${MX}/core/share.cpp
     ${MX}/app/net/net.cpp
     # приложение и интерфейс
-    ${MX}/app/app.cpp ${MX}/app/cloud.cpp ${MX}/app/audio/player.cpp
+    ${MX}/app/app.cpp ${MX}/app/social.cpp ${MX}/app/audio/player.cpp
     ${MX}/app/ui/ui.cpp ${MX}/app/ui/views.cpp ${MX}/app/ui/fullplayer.cpp ${MX}/app/ui/modals.cpp
     ${MX}/app/ui/draw.cpp ${MX}/app/ui/textures.cpp ${MX}/app/ui/i18n.cpp ${MX}/app/ui/mobile.cpp
     # Dear ImGui

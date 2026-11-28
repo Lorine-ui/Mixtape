@@ -45,8 +45,16 @@ Ui::Ui(App& app, Gfx& gfx, const Fonts& fonts) : app_(app), tex_(app, gfx), F_(f
     pal_.sat = 0.92f;
 }
 
+namespace {
+const char* const kBgExts[] = {"gif", "png", "jpg", "jpeg", "bmp"};
+}
+
 void Ui::init() {
     std::string dir = app_.dataDir;
+    for (const char* ext : kBgExts) {  // свой фон, если он был выбран раньше
+        std::string bg;
+        if (readFile((fs::u8path(dir) / (std::string("ui_bg.") + ext)).u8string(), bg)) { tex_.setBackground(bg); customBg_ = true; break; }
+    }
     for (const char* ext : {"gif", "png", "jpg", "jpeg", "bmp"}) {
         std::string bytes;
         if (readFile((fs::u8path(dir) / (std::string("ui_teto.") + ext)).u8string(), bytes)) { tex_.setTeto(bytes); customTeto_ = true; return; }
@@ -82,6 +90,60 @@ void Ui::pickCustomTeto() {
     customTeto_ = true;
     if (!app_.tetoOn()) { app_.lib.set("tetoOn", Json(true)); app_.touch(); }
     app_.toast("Готово: теперь в углу танцует ваша картинка");
+}
+
+// Свой фон: «на весь экран» (картинка закрывает экран, лишнее обрезается) или «целиком» (видна вся, по краям цвет темы).
+// В «спокойном» режиме GIF стоит на первом кадре.
+bool Ui::drawCustomBg(ImDrawList* dl) {
+    if (!customBg_) return false;
+    ImTextureID t = tex_.background(calm() ? 0.0 : static_cast<double>(time_));
+    if (!t || W_.x < 1.f || W_.y < 1.f) return false;
+    const float ia = tex_.backgroundAspect(), sa = W_.x / W_.y;
+    const bool contain = app_.lib.getStr("bgFit", "cover") == "contain";
+    ImVec2 p0(0, 0), p1 = W_, uv0(0, 0), uv1(1, 1);
+    if (contain) {
+        if (ia > sa) { float h = W_.x / ia; p0.y = (W_.y - h) / 2; p1.y = p0.y + h; }
+        else { float w = W_.y * ia; p0.x = (W_.x - w) / 2; p1.x = p0.x + w; }
+    } else if (ia > sa) {  // картинка шире экрана: обрезаем по бокам
+        uv0.x = (1.f - sa / ia) / 2; uv1.x = 1.f - uv0.x;
+    } else {               // выше экрана: обрезаем сверху и снизу
+        uv0.y = (1.f - ia / sa) / 2; uv1.y = 1.f - uv0.y;
+    }
+    dl->AddImage(t, p0, p1, uv0, uv1);
+    return true;
+}
+
+// Свой фон: файл копируется в папку данных как ui_bg.* (старый убирается) и подхватывается при каждом запуске.
+void Ui::pickCustomBg() {
+    pickImageFile([this](std::string src) {
+        std::string bytes;
+        if (!readFile(src, bytes) || bytes.empty()) { app_.toast("Не удалось открыть файл"); return; }
+        if (bytes.size() > 40u << 20) { app_.toast("Файл слишком большой (больше 40 МБ)"); return; }
+        std::string ext = lower(fs::u8path(src).extension().u8string());
+        if (!ext.empty() && ext[0] == '.') ext.erase(0, 1);
+        if (bytes.compare(0, 3, "GIF") == 0) ext = "gif";
+        else if (ext != "png" && ext != "jpg" && ext != "jpeg" && ext != "bmp") ext = "png";  // формат определится по содержимому
+        std::error_code ec;
+        for (const char* e : {"gif", "png", "jpg", "jpeg", "bmp"}) fs::remove(fs::u8path(app_.dataDir) / (std::string("ui_bg.") + e), ec);
+        std::string err;
+        if (!writeFileAtomic((fs::u8path(app_.dataDir) / ("ui_bg." + ext)).u8string(), bytes, &err)) {
+            app_.toast("Не удалось сохранить картинку: " + err);
+            return;
+        }
+        tex_.setBackground(bytes);
+        customBg_ = true;
+        // на яркой картинке текст плохо читается: при первом выборе слегка затемняем
+        if (app_.lib.getNum("bgDim", 0) < 0.2) { app_.lib.set("bgDim", Json(0.35)); app_.touch(); }
+        app_.toast("Готово: теперь на фоне ваша картинка. Затемнение можно менять ниже");
+    });
+}
+
+void Ui::resetBg() {
+    std::error_code ec;
+    for (const char* e : kBgExts) fs::remove(fs::u8path(app_.dataDir) / (std::string("ui_bg.") + e), ec);
+    tex_.setBackground({});
+    customBg_ = false;
+    app_.toast("Фон возвращён");
 }
 
 void Ui::resetTeto() {
@@ -459,12 +521,54 @@ void Ui::updatePalette() {
 }
 
 void Ui::twoLines(ImDrawList* dl, float x, float midY, float maxW, const std::string& title, float fsT, ImU32 colT,
-                  const std::string& sub, float fsS, ImU32 colS) {
+                  const std::string& sub, float fsS, ImU32 colS, SubLink* link) {
     // высоту берём по образцу «Ag», а не по самой строке: так у всех строк одинаковая опорная линия
     float hT = measure(F_.bold, fsT, "Ag").y, hS = sub.empty() ? 0.f : measure(F_.regular, fsS, "Ag").y;
     float gap = sub.empty() ? 0.f : 1.f, top = midY - (hT + gap + hS) / 2;
     drawText(dl, F_.bold, fsT, ImVec2(x, top), colT, ellipsize(F_.bold, fsT, title, maxW));
-    if (!sub.empty()) drawText(dl, F_.regular, fsS, ImVec2(x, top + hT + gap), colS, ellipsize(F_.regular, fsS, sub, maxW));
+    if (sub.empty()) return;
+    const float sy = top + hT + gap;
+    if (link && link->id && !link->text.empty() && sub.compare(0, link->text.size(), link->text) == 0) {
+        // начало подписи — имя исполнителя: ссылка (наведение красит и подчёркивает), остаток подписи обычный
+        const std::string shown = ellipsize(F_.regular, fsS, link->text, maxW);
+        const ImVec2 as = measure(F_.regular, fsS, shown);
+        Hit h = hit(link->id, ImVec2(x - 2.f, sy - 1.f), ImVec2(as.x + 4.f, hS + 2.f));
+        const ImU32 c = h.hovered ? pal_.acc : colS;
+        if (h.hovered) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            tip("Песни и альбомы исполнителя");
+        }
+        drawText(dl, F_.regular, fsS, ImVec2(x, sy), c, shown);
+        if (h.hovered) dl->AddLine(ImVec2(x, sy + hS - 1.f), ImVec2(x + as.x, sy + hS - 1.f), c, 1.f);
+        link->clicked = h.clicked;
+        const std::string rest = sub.substr(link->text.size());
+        if (!rest.empty() && as.x + 12.f < maxW) drawText(dl, F_.regular, fsS, ImVec2(x + as.x, sy), colS, ellipsize(F_.regular, fsS, rest, maxW - as.x));
+        return;
+    }
+    drawText(dl, F_.regular, fsS, ImVec2(x, sy), colS, ellipsize(F_.regular, fsS, sub, maxW));
+}
+
+// Переход на страницу исполнителя. Выполняется в начале следующего кадра: строки списка, по которым мы сейчас идём,
+// указывают в данные текущей страницы, а openArtist их заменяет.
+void Ui::goArtist(const std::string& names, bool strict) {
+    app_.post([this, names, strict] { app_.openArtist(names, strict); });
+}
+
+// Подпись исполнителя отдельной строкой (полный экран плеера). Возвращает true по нажатию.
+bool Ui::artistLabel(const char* id, ImDrawList* dl, ImVec2 pos, const std::string& shown, float fs, ImU32 col, const Track& t) {
+    const ImVec2 sz = measure(F_.regular, fs, shown);
+    const bool can = !t.artist.empty() && t.source != "local";
+    Hit h;
+    if (can) h = hit(id, pos - ImVec2(4.f, 2.f), sz + ImVec2(8.f, 4.f));
+    const bool on = can && h.hovered;
+    if (on) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        tip("Песни и альбомы исполнителя");
+    }
+    const ImU32 c = on ? pal_.acc : col;
+    drawText(dl, F_.regular, fs, pos, c, shown);
+    if (on) dl->AddLine(ImVec2(pos.x, pos.y + sz.y - 1.f), ImVec2(pos.x + sz.x, pos.y + sz.y - 1.f), c, 1.f);
+    return can && h.clicked;
 }
 
 void Ui::drawCover(ImDrawList* dl, const Track& t, ImVec2 p, float size, float rounding) {
@@ -537,7 +641,9 @@ void Ui::frame(float dt, ImVec2 display) {
     // фон: цвет темы и мягкие цветные пятна (отключаются в «спокойном» режиме)
     ImDrawList* bg = ImGui::GetBackgroundDrawList();
     bg->AddRectFilled(ImVec2(0, 0), W_, pal_.bg);
-    if (theme().deco && setting("pattern", true)) drawDeco(bg, W_, calm() ? 0.f : time_, pal_, theme().deco);
+    if (drawCustomBg(bg)) {
+        // свой фон: узор и пятна темы поверх него не рисуем
+    } else if (theme().deco && setting("pattern", true)) drawDeco(bg, W_, calm() ? 0.f : time_, pal_, theme().deco);
     else if (setting("blobs", true) && !setting("calm", false)) drawBlobs(bg, W_, time_, pal_, 0.30f);
     else if (setting("blobs", true)) drawBlobs(bg, W_, 0.f, pal_, 0.22f);
     // затемнение фона из настроек: накрывает фон с узором, интерфейс остаётся ярким
@@ -601,6 +707,8 @@ void Ui::drawRoot() {
         lastView_ = app_.view;
         lastPlaylist_ = app_.viewPlaylist;
         viewStart_ = app_.now();
+        scrollTop_ = true;
+        albumsOpen_ = singlesOpen_ = false;
     }
     drawContent(ImVec2(mx, 0), ImVec2(mw, W_.y));
     drawTopBar(ImVec2(mx + 24, 16), mw - 48);
@@ -672,6 +780,18 @@ void Ui::drawSidebar(ImVec2 pos, ImVec2 size) {
     if (nav("##nOff", Icon::Download, "Офлайн", app_.view == ViewKind::Offline)) app_.openView(ViewKind::Offline);
     if (nav("##nRec", Icon::Sparkle, "Для вас", app_.view == ViewKind::ForYou)) app_.openView(ViewKind::ForYou);
     if (nav("##nStat", Icon::Chart, "Статистика", app_.view == ViewKind::Stats)) app_.openView(ViewKind::Stats);
+    {
+        if (nav("##nFr", Icon::User, "Друзья", app_.view == ViewKind::Friends)) app_.openFriends();
+        if (const int n = app_.friendsBadge()) {   // сколько нового: запросы и рекомендации
+            const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
+            const std::string num = std::to_string(std::min(n, 99));
+            const ImVec2 ts = measure(F_.bold, 11.f, num);
+            const float bw = std::max(18.f, ts.x + 10.f);
+            const ImVec2 bc(r1.x - 14.f - bw / 2, (r0.y + r1.y) / 2);
+            dl->AddRectFilled(bc - ImVec2(bw / 2, 9.f), bc + ImVec2(bw / 2, 9.f), pal_.acc, 9.f);
+            drawText(dl, F_.bold, 11.f, bc - ts * 0.5f, IM_COL32(14, 10, 20, 255), num);
+        }
+    }
     if (nav("##nRnd", Icon::Dice, "Случайная песня", false)) app_.randomSong();
     if (nav("##nImp", Icon::Import, "Перенести плейлист", false)) { importLink_.clear(); openModal(Modal::Import); }
     if (nav("##nFiles", Icon::Files, "Добавить файлы", false)) app_.addFiles();
@@ -748,22 +868,13 @@ void Ui::drawTopBar(ImVec2 p, float w) {
     // справа вверху: на весь экран и обратно
     bool fs = app_.platform.isFullscreen && app_.platform.isFullscreen();
     {
-        // аккаунт: буква почты в кружке (или значок человека), точка — состояние синхронизации
+        // профиль: аватарка с рамкой (клик открывает «Профиль»)
         ImVec2 ac(p.x + w - 70, p.y + 22);
-        const AccountState& st = app_.acct;
         Hit h = hit("##acct", ac - ImVec2(20, 20), ImVec2(40, 40));
         float k = hv(h.id, h.hovered);
-        if (st.loggedIn()) {
-            drawAvatar(dl, ac, 15.f + 1.5f * k);
-            ImU32 dot = st.syncing || st.profSyncing ? IM_COL32(255, 210, 110, 255) : !st.error.empty() ? IM_COL32(255, 120, 100, 255) : IM_COL32(110, 220, 140, 255);
-            dl->AddCircleFilled(ac + ImVec2(12, 12), 5.f, pal_.bg, 12);
-            dl->AddCircleFilled(ac + ImVec2(12, 12), 3.5f, dot, 12);
-        } else {
-            if (k > 0.01f) dl->AddCircleFilled(ac, 20.f, white(0.08f * k), 32);
-            icon(dl, Icon::User, ac, 22.f, white(0.65f + 0.35f * k));
-        }
-        if (h.hovered) tip(st.loggedIn() ? (st.syncing ? "Аккаунт: синхронизация…" : "Аккаунт: " + st.name()).c_str() : "Войти в аккаунт");
-        if (h.clicked) openModal(Modal::Account);
+        drawAvatar(dl, ac, 15.f + 1.5f * k);
+        if (h.hovered) tip(("Профиль: " + app_.acct.name()).c_str());
+        if (h.clicked) openModal(Modal::Profile);
     }
     if (iconButton("##fullscreen", dl, ImVec2(p.x + w - 20, p.y + 22), 40.f, fs ? Icon::Shrink : Icon::Expand, false,
                    fs ? "Выйти из полноэкранного режима (F11)" : "На весь экран (F11)"))
@@ -821,8 +932,11 @@ void Ui::drawMini() {
         statusCol = IM_COL32(255, 150, 140, 255);
     }
     float stH = status.empty() ? 0.f : measure(F_.regular, 12.f, "Ag").y;
+    SubLink miniLink{"##miniArt", t.artist};
+    const bool miniCan = !t.artist.empty() && t.source != "local";
     twoLines(dl, p.x + 82, p.y + h / 2 - stH / 2, tw - 34, t.title, 15.f, white(0.97f),
-             t.artist.empty() ? sourceLabel(t.source) : t.artist, 13.f, white(0.55f));
+             t.artist.empty() ? sourceLabel(t.source) : t.artist, 13.f, white(0.55f), miniCan ? &miniLink : nullptr);
+    if (miniCan && miniLink.clicked) goArtist(t.artist, t.source != "youtube");
     if (!status.empty()) {
         float hT = measure(F_.bold, 15.f, "Ag").y, hS = measure(F_.regular, 13.f, "Ag").y;
         float top = p.y + h / 2 - stH / 2 - (hT + 1 + hS) / 2;

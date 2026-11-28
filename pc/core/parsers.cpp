@@ -169,6 +169,175 @@ std::vector<Track> parseYtmSearch(const std::string& body) {
     return out;
 }
 
+// ---------- YouTube Music: страница исполнителя и альбомы ----------
+
+std::string firstArtist(const std::string& names) {
+    const std::string low = lower(names);
+    std::size_t cut = names.size();
+    for (const char* d : {", ", " & ", " feat.", " feat ", " ft.", " ft ", " featuring ", " \xC3\x97 ", " x ", ";", " and ", " \xD0\xB8 "}) {
+        std::size_t p = low.find(d);
+        if (p != std::string::npos && p > 0 && p < cut) cut = p;
+    }
+    return trim(names.substr(0, cut));
+}
+
+static std::string lastThumb(const Json& thumbs) {
+    const auto& th = thumbs["thumbnails"].items();
+    return th.empty() ? std::string() : th.back()["url"].asStr();
+}
+
+// Строки-песни в ответе browse: у альбома и списка «все песни» исполнитель/обложка могут быть пустыми — берём общие.
+static std::vector<Track> ytmRows(const Json& root, const std::string& defArtist, const std::string& defCover) {
+    std::vector<const Json*> found;
+    walk(root, "musicResponsiveListItemRenderer", found);
+    std::vector<Track> out;
+    std::set<std::string> seen;
+    for (const Json* v : found) {
+        if (!v->isObject()) continue;
+        std::string vid = (*v)["playlistItemData"]["videoId"].asStr();
+        if (vid.empty())
+            vid = (*v)["overlay"]["musicItemThumbnailOverlayRenderer"]["content"]["musicPlayButtonRenderer"]["playNavigationEndpoint"]["watchEndpoint"]["videoId"].asStr();
+        const auto& cols = (*v)["flexColumns"].items();
+        if (vid.empty() || cols.empty() || !seen.insert(vid).second) continue;
+        std::string title = txt(cols[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]);
+        if (title.empty()) continue;
+        std::string artist;
+        if (cols.size() > 1) artist = trim(txt(cols[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]));
+        double dur = 0;
+        for (const auto& fc : (*v)["fixedColumns"].items()) dur = clockToSec(trim(txt(fc["musicResponsiveListItemFixedColumnRenderer"]["text"])));
+        Track t = Track::make("youtube", vid);
+        t.title = title;
+        t.artist = stripTopic(artist.empty() ? defArtist : artist);
+        t.dur = dur;
+        t.cover = lastThumb((*v)["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]);
+        if (t.cover.empty()) t.cover = defCover;
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+// Адрес картинки YouTube Music вида «…=w120-h120-p-l90-rj» -> тот же, но нужного размера (мелкую картинку на плитке не растянуть).
+static std::string thumbSized(const std::string& u, int size) {
+    const std::size_t a = u.rfind("=w");
+    if (a == std::string::npos) return u;
+    std::size_t i = a + 2, j = i;
+    while (j < u.size() && std::isdigit(static_cast<unsigned char>(u[j]))) ++j;
+    if (j == i || u.compare(j, 2, "-h") != 0) return u;
+    std::size_t k = j + 2, e = k;
+    while (e < u.size() && std::isdigit(static_cast<unsigned char>(u[e]))) ++e;
+    if (e == k) return u;
+    return u.substr(0, a) + "=w" + std::to_string(size) + "-h" + std::to_string(size) + u.substr(e);
+}
+
+static YtmAlbum ytmAlbumCard(const Json& it) {
+    YtmAlbum a;
+    a.id = it["navigationEndpoint"]["browseEndpoint"]["browseId"].asStr();
+    a.title = txt(it["title"]);
+    a.sub = txt(it["subtitle"]);
+    a.cover = lastThumb(it["thumbnailRenderer"]["musicThumbnailRenderer"]["thumbnail"]);
+    return a;
+}
+
+YtmArtistRef parseYtmArtistSearch(const std::string& body, const std::string& want, bool exactOnly) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject() || !d.has("contents"))
+        throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    std::vector<const Json*> found;
+    walk(d, "musicResponsiveListItemRenderer", found);
+    YtmArtistRef best;
+    const std::string w = lower(trim(want));
+    for (const Json* v : found) {
+        std::string id = (*v)["navigationEndpoint"]["browseEndpoint"]["browseId"].asStr();
+        const auto& cols = (*v)["flexColumns"].items();
+        if (id.compare(0, 2, "UC") != 0 || cols.empty()) continue;
+        YtmArtistRef r;
+        r.id = id;
+        r.name = txt(cols[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]);
+        r.cover = thumbSized(lastThumb((*v)["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]), 400);
+        if (best.id.empty() && !exactOnly) best = r;
+        if (lower(trim(r.name)) == w) return r;
+    }
+    return best;
+}
+
+YtmArtistPage parseYtmArtist(const std::string& body) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject() || !d.has("contents"))
+        throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    YtmArtistPage p;
+    if (const Json* h = walkFirst(d, "musicImmersiveHeaderRenderer")) {
+        p.name = txt((*h)["title"]);
+        p.cover = lastThumb((*h)["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]);
+    }
+    if (const Json* sh = walkFirst(d, "musicShelfRenderer")) {
+        const auto& be = (*sh)["bottomEndpoint"]["browseEndpoint"];
+        p.songsId = be["browseId"].asStr();
+        p.songs = ytmRows(*sh, p.name, p.cover);
+    }
+    std::vector<const Json*> car;
+    walk(d, "musicCarouselShelfRenderer", car);
+    for (const Json* c : car) {
+        const Json& hd = (*c)["header"]["musicCarouselShelfBasicHeaderRenderer"];
+        const std::string title = txt(hd["title"]);
+        const bool alb = title == "Albums", sin = title == "Singles & EPs";
+        if (!alb && !sin) continue;
+        auto& dst = alb ? p.albums : p.singles;
+        for (const auto& it : (*c)["contents"].items()) {
+            const Json& two = it["musicTwoRowItemRenderer"];
+            if (!two.isObject()) continue;
+            YtmAlbum a = ytmAlbumCard(two);
+            if (a.id.compare(0, 4, "MPRE") == 0 && !a.title.empty()) dst.push_back(std::move(a));
+        }
+        const auto& more = hd["moreContentButton"]["buttonRenderer"]["navigationEndpoint"]["browseEndpoint"];
+        (alb ? p.albumsId : p.singlesId) = more["browseId"].asStr();
+        (alb ? p.albumsParams : p.singlesParams) = more["params"].asStr();
+    }
+    if (p.name.empty() && p.songs.empty() && p.albums.empty() && p.singles.empty())
+        throw std::runtime_error("Не удалось прочитать страницу исполнителя");
+    return p;
+}
+
+std::vector<YtmAlbum> parseYtmAlbums(const std::string& body) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject()) throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    std::vector<const Json*> found;
+    walk(d, "musicTwoRowItemRenderer", found);
+    std::vector<YtmAlbum> out;
+    for (const Json* v : found) {
+        YtmAlbum a = ytmAlbumCard(*v);
+        if (a.id.compare(0, 4, "MPRE") == 0 && !a.title.empty()) out.push_back(std::move(a));
+    }
+    return out;
+}
+
+std::vector<Track> parseYtmTracks(const std::string& body, const std::string& artist, const std::string& cover) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject()) throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    return ytmRows(d, artist, cover);
+}
+
+YtmAlbumPage parseYtmAlbum(const std::string& body) {
+    Json d;
+    if (!Json::tryParse(body, d) || !d.isObject() || !d.has("contents"))
+        throw std::runtime_error("YouTube Music изменил ответ, не удалось прочитать");
+    YtmAlbumPage a;
+    if (const Json* h = walkFirst(d, "musicResponsiveHeaderRenderer")) {
+        a.title = txt((*h)["title"]);
+        a.artist = stripTopic(txt((*h)["straplineTextOne"]));
+        a.cover = lastThumb((*h)["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]);
+        const std::string sub = txt((*h)["subtitle"]);
+        for (std::size_t i = 0; i + 4 <= sub.size(); ++i)
+            if (std::isdigit(static_cast<unsigned char>(sub[i])) && std::isdigit(static_cast<unsigned char>(sub[i + 1])) &&
+                std::isdigit(static_cast<unsigned char>(sub[i + 2])) && std::isdigit(static_cast<unsigned char>(sub[i + 3]))) {
+                a.year = sub.substr(i, 4);
+                break;
+            }
+    }
+    a.tracks = ytmRows(d, a.artist, a.cover);
+    if (a.title.empty() && a.tracks.empty()) throw std::runtime_error("Не удалось прочитать альбом");
+    return a;
+}
+
 PlaylistInfo parseYtPlaylist(const std::string& html) {
     Json d = ytData(html);
     PlaylistInfo pl;

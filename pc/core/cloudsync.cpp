@@ -112,7 +112,7 @@ Profile Profile::fromJson(const Json& j) {
     p.name = clipChars(j["name"].asStr(), 24);
     p.status = clipChars(j["status"].asStr(), 60);
     p.color = std::clamp(static_cast<int>(j["color"].asNum()), 0, 7);
-    p.frame = std::clamp(static_cast<int>(j["frame"].asNum(1)), 0, 2);
+    p.frame = std::clamp(static_cast<int>(j["frame"].asNum(1)), 0, Profile::kFrameCount - 1);
     p.avatar = j["avatar"].asStr();
     std::string px;
     const std::size_t need = static_cast<std::size_t>(kAvatarSide) * kAvatarSide * 3u;
