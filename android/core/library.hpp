@@ -69,9 +69,8 @@ public:
         int tracks = 0, playlists = 0, lyrics = 0;
         bool ok = false;
     };
-    // Резервная копия: добавляет то, чего нет; существующее и настройки не трогает. Локальные файлы пропускаются,
-    // если не сказано keepFiles (перенос из папки старой версии на этом же устройстве: тогда остаются и свои файлы, и офлайн-копии).
-    MergeStats mergeBackup(const Json& j, bool keepFiles = false);
+    // Резервная копия: добавляет то, чего нет; существующее и настройки не трогает. Локальные файлы пропускаются.
+    MergeStats mergeBackup(const Json& j);
 };
 
 std::string lyricKey(const Track& t);  // «название|исполнитель»

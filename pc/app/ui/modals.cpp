@@ -55,16 +55,13 @@ void Ui::drawModal() {
         case Modal::Settings: h = 660; break;
         case Modal::Import: h = 560; break;
         case Modal::NewPlaylist: h = 230; break;
-        case Modal::AddToPlaylist: h = 500.f; break;
+        case Modal::AddToPlaylist: h = 440; break;
         case Modal::OwnLyrics: h = 520; break;
         case Modal::TapSync: h = 520; break;
         case Modal::Teto: h = 420; break;
         case Modal::Confirm: h = 210; break;
-        case Modal::Profile: {  // высота зависит от числа рядов рамок: на узком экране их больше
-            const int cols = std::max(1, static_cast<int>((w - 56.f + 8.f) / 74.f));
-            h = 552.f + static_cast<float>((Profile::kFrameCount + cols - 1) / cols) * 92.f + 16.f;
-            break;
-        }
+        case Modal::Account: h = app_.acct.loggedIn() ? 480.f : 450.f; break;
+        case Modal::Profile: h = 610; break;
         default: break;
     }
     h = std::min(h, W_.y - 32.f);
@@ -89,6 +86,7 @@ void Ui::drawModal() {
         case Modal::TapSync: modalTap(o, sz); break;
         case Modal::Teto: modalTeto(o, sz); break;
         case Modal::Confirm: modalConfirm(o, sz); break;
+        case Modal::Account: modalAccount(o, sz); break;
         case Modal::Profile: modalProfile(o, sz); break;
         default: break;
     }
@@ -278,27 +276,10 @@ void Ui::modalSettings(ImVec2 o, ImVec2 sz) {
                                   dm < 0.005f ? std::string("нет") : pct(dm));
             if (so3.active) set("bgDim", Json(static_cast<double>(so3.value) * 0.85));
         }
-        {
-            // своя картинка или GIF на задний фон
-            static const Icon kPickBg = Icon::Files;
-            const std::string bgLabel = customBg_ ? "Другая" : "Выбрать";
-            const float pw = pillWidth(bgLabel, true), rw = customBg_ ? pillWidth("Убрать", false) + 8.f : 0.f;
-            label("Свой фон", customBg_ ? "Сейчас стоит ваша картинка" : "Картинка или GIF на задний фон: PNG, JPG, BMP, GIF", pw + rw);
-            if (customBg_ && pill("##bgReset", cd, ImVec2(x + w - pw - rw, y + 6), ImVec2(rw - 8.f, 36), "Убрать")) resetBg();
-            if (pill("##bgPick", cd, ImVec2(x + w - pw, y + 6), ImVec2(pw, 36), bgLabel, !customBg_, false, &kPickBg)) pickCustomBg();
-            endRow();
-        }
-        if (customBg_) {
-            const std::string fit = app_.lib.getStr("bgFit", "cover");
-            int f = seg("Как заполнять", "Растянуть на весь экран или показать картинку целиком", "##bgFit", {"Заполнить экран", "Целиком"}, fit == "contain" ? 1 : 0);
-            if (f >= 0) set("bgFit", Json(std::string(f == 1 ? "contain" : "cover")));
-        }
 
         head("ФОН И ПАНЕЛИ");
-        if (!customBg_) {  // со своим фоном узор и пятна темы не рисуются
-            if (themeById(cur).deco) toggle("Узоры на фоне", "Рисунок на фоне этой темы", "pattern", true);
-            toggle("Цветные пятна на фоне", themeById(cur).deco ? "Для тем без узора и когда узор выключен" : "Мягкое свечение за интерфейсом", "blobs", true);
-        }
+        if (themeById(cur).deco) toggle("Узоры на фоне", "Рисунок на фоне этой темы", "pattern", true);
+        toggle("Цветные пятна на фоне", themeById(cur).deco ? "Для тем без узора и когда узор выключен" : "Мягкое свечение за интерфейсом", "blobs", true);
         float pa = static_cast<float>(app_.lib.getNum("panelAlpha", 0.6));
         SliderOut so = slide("Плотность панелей", "Насколько непрозрачны боковая панель, поиск и мини-плеер", "##panelA", (pa - 0.2f) / 0.8f, pct(pa));
         if (so.active) set("panelAlpha", Json(0.2 + 0.8 * static_cast<double>(so.value)));
@@ -389,8 +370,6 @@ void Ui::modalSettings(ImVec2 o, ImVec2 sz) {
         if (ds >= 0) set("deckStyle", Json(std::string(ds == 1 ? "cover" : "vinyl")));
         toggle("Скачивать при добавлении", "Песни из «Моей музыки» сразу сохраняются для офлайна", "autoOff", false);
         toggle("Случайная песня — по вашему вкусу", "Похожее на «Мою музыку» и то, что вы слушаете чаще всего. Выключено — случайный жанр", "tasteRandom", true);
-        if (app_.platform.hasDiscord)
-            toggle("Показывать в Discord", "Что вы слушаете и на какой минуте. Нужен запущенный Discord на компьютере", "discord", true);
 
         head("ТАЙМЕР СНА");
         bool on = app_.sleepAt > 0 || app_.sleepAtEnd;
@@ -457,31 +436,12 @@ void Ui::modalSettings(ImVec2 o, ImVec2 sz) {
             }
         }
     } else {
-        head("ПРОФИЛЬ");
-        label((acName_ = app_.acct.name()).c_str(), "Ник, фото, цвет и рамка аватарки. Хранится на этом устройстве", 150);
-        if (pill("##acctOpen", cd, ImVec2(x + w - 150, y + 6), ImVec2(150, 36), "Профиль", true)) openModal(Modal::Profile);
+        head("АККАУНТ");
+        label(app_.acct.loggedIn() ? (acName_ = app_.acct.name()).c_str() : "Не выполнен вход",
+              app_.acct.loggedIn() ? "Песни и плейлисты сохраняются в аккаунте" : "Войдите, чтобы музыка была на всех устройствах", 150);
+        if (pill("##acctOpen", cd, ImVec2(x + w - 150, y + 6), ImVec2(150, 36), app_.acct.loggedIn() ? "Аккаунт" : "Войти", !app_.acct.loggedIn()))
+            openModal(Modal::Account);
         endRow();
-        head("ПЕРЕНОС ИЗ СТАРОЙ ВЕРСИИ");
-        drawText(cd, F_.regular, 13.f, ImVec2(x, y), white(0.55f),
-                 "Моя музыка, плейлисты, свои файлы и скачанные копии из прежней версии Mixtape. То, что уже есть, не задвоится.", w);
-        y += 44;
-        if (app_.legacy.empty()) {
-            drawText(cd, F_.regular, 13.f, ImVec2(x, y), white(0.45f), "Старых библиотек рядом не найдено. Можно выбрать файл вручную.", w);
-            y += 30;
-        }
-        for (std::size_t li = 0; li < app_.legacy.size(); ++li) {
-            const auto& ls = app_.legacy[li];
-            ImGui::PushID(static_cast<int>(li));
-            drawText(cd, F_.bold, 13.f, ImVec2(x, y), white(0.85f), ellipsize(F_.bold, 13.f, ls.dir, w - 150));
-            drawText(cd, F_.regular, 12.f, ImVec2(x, y + 20), white(0.5f), "Песен: " + std::to_string(ls.tracks) + ", плейлистов: " + std::to_string(ls.playlists));
-            if (pill("##lgGo", cd, ImVec2(x + w - 130, y), ImVec2(130, 36), "Перенести", true)) app_.importLegacy(ls.dir);
-            ImGui::PopID();
-            y += 52;
-        }
-        static const Icon kLg = Icon::Import;
-        if (pill("##lgFile", cd, ImVec2(x, y), ImVec2(pillWidth("Выбрать файл library.json", true), 40), "Выбрать файл library.json", false, false, &kLg))
-            app_.importLegacyFile();
-        y += 60;
         head("РЕЗЕРВНАЯ КОПИЯ");
         drawText(cd, F_.regular, 13.f, ImVec2(x, y), white(0.55f),
                  "Песни, плейлисты, фрагменты и тексты в одном файле. Подходит и копия из старого приложения.", w);
@@ -619,14 +579,6 @@ void Ui::modalAddToPlaylist(ImVec2 o, ImVec2 sz) {
         return;
     }
     y += 52;
-    if (pickTrack_.source != "local" && !pickTrack_.clip) {
-        if (pill("##apRec", dl, ImVec2(x, y), ImVec2(w, 40), "Порекомендовать другу")) {
-            app_.shareSong(pickTrack_);
-            closeModal();
-            return;
-        }
-        y += 52;
-    }
     ImGui::SetCursorScreenPos(ImVec2(x, y));
     ImGui::BeginChild("##apList", ImVec2(w, sz.y - (y - o.y) - 24), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
     ImDrawList* cd = ImGui::GetWindowDrawList();
@@ -749,6 +701,117 @@ void Ui::modalConfirm(ImVec2 o, ImVec2 sz) {
     if (pill("##cfNo", dl, ImVec2(x + 140, by), ImVec2(130, 42), "Отмена")) closeModal();
 }
 
+// ---------- аккаунт ----------
+
+void Ui::modalAccount(ImVec2 o, ImVec2 sz) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    AccountState& ac = app_.acct;
+    float x = o.x + 28, w = sz.x - 56, y = o.y + 24;
+    drawText(dl, F_.bold, 24.f, ImVec2(x, y), white(0.98f), "Аккаунт");
+    y += 46;
+
+    if (!app_.cloudConfigured()) {
+        drawText(dl, F_.regular, 14.f, ImVec2(x, y), white(0.6f),
+                 "Аккаунты ещё не подключены: в приложении не указан проект Firebase (файл app/cloud_config.hpp).", w);
+        return;
+    }
+
+    if (ac.loggedIn()) {
+        // карточка профиля: полоса цвета профиля, аватарка, никнейм и «о себе»
+        ImU32 pc = profileColor(ac.prof.color);
+        ImVec2 b0(x, y - 6), b1(x + w, y + 64);
+        dl->AddRectFilled(b0, b1, alpha(pc, 0.20f), radius(18.f));
+        dl->PushClipRect(b0, b1, true);
+        glow(dl, ImVec2(b1.x - 90.f, b0.y + 20.f), 150.f, pc, 0.45f, 22);
+        glow(dl, ImVec2(b0.x + 200.f, b1.y), 110.f, pal_.acc2, 0.25f, 18);
+        dl->PopClipRect();
+        ImVec2 c(x + 58, y + 64);
+        dl->AddCircleFilled(c, 50.f, IM_COL32(20, 18, 30, 255), 48);  // отделяем аватарку от полосы
+        drawAvatar(dl, c, 44.f);
+        float tx = x + 122, tw = w - 122;
+        drawText(dl, F_.bold, 21.f, ImVec2(tx, y + 72), white(0.98f), ellipsize(F_.bold, 21.f, ac.name(), tw));
+        bool noStatus = trim(ac.prof.status).empty();
+        drawText(dl, F_.regular, 14.f, ImVec2(tx, y + 102), white(noStatus ? 0.35f : 0.68f),
+                 ellipsize(F_.regular, 14.f, noStatus ? "Расскажите о себе в профиле" : ac.prof.status, tw));
+        drawText(dl, F_.regular, 12.5f, ImVec2(tx, y + 124), white(0.38f), ellipsize(F_.regular, 12.5f, ac.email, tw));
+        y += 158;
+
+        // немного статистики
+        {
+            const ListenStats& ls = app_.stats;
+            double sec = ls.totalSec();
+            std::string hours = sec >= 3600 ? std::to_string(static_cast<int>(sec / 3600)) + " ч" : std::to_string(static_cast<int>(sec / 60)) + " мин";
+            auto arts = ls.topArtists(1);
+            std::string fav = arts.empty() ? "—" : arts[0].name;
+            struct Tile { const char* cap; std::string val; } tiles[3] = {
+                {"Наслушано", hours}, {"Прослушиваний", std::to_string(ls.playCount())}, {"Любимый исполнитель", fav}};
+            float gap = 10.f, tw3 = (w - 2 * gap) / 3.f;
+            for (int i = 0; i < 3; ++i) {
+                ImVec2 t0(x + static_cast<float>(i) * (tw3 + gap), y), t1(t0.x + tw3, y + 66);
+                dl->AddRectFilled(t0, t1, white(0.045f), radius(14.f));
+                drawText(dl, F_.bold, 18.f, t0 + ImVec2(14, 12), i == 0 ? alpha(pc, 1.f) : white(0.95f),
+                         ellipsize(F_.bold, 18.f, tiles[i].val, tw3 - 24));
+                drawText(dl, F_.regular, 12.f, t0 + ImVec2(14, 40), white(0.5f), ellipsize(F_.regular, 12.f, tiles[i].cap, tw3 - 24));
+            }
+            y += 84;
+        }
+
+        std::string st;
+        ImU32 stc = white(0.7f);
+        if (ac.syncing || ac.profSyncing) { st = "Синхронизация…"; stc = alpha(pal_.acc, 0.95f); }
+        else if (!ac.error.empty()) { st = "Не удалось синхронизировать: " + ac.error; stc = IM_COL32(255, 150, 140, 255); }
+        else if (ac.lastOk >= 0) {
+            int m = static_cast<int>((app_.now() - ac.lastOk) / 60);
+            st = m < 1 ? "Всё синхронизировано только что" : "Всё синхронизировано " + std::to_string(m) + " мин назад";
+            stc = IM_COL32(140, 220, 160, 255);
+        } else st = "Ещё не синхронизировано";
+        dl->AddCircleFilled(ImVec2(x + 6, y + 9), 4.f, stc, 12);
+        drawText(dl, F_.regular, 14.f, ImVec2(x + 18, y), stc, ellipsize(F_.regular, 14.f, st, w - 20));
+        y += 30;
+        drawText(dl, F_.regular, 13.f, ImVec2(x, y), white(0.5f),
+                 "Музыка, плейлисты и профиль хранятся в аккаунте — войдите с той же почтой на другом устройстве, и всё появится там.", w);
+        y += 58;
+        static const Icon kSync = Icon::Loop, kOut = Icon::Close, kEdit = Icon::User;
+        float ew = pillWidth("Изменить профиль", true), sw = pillWidth("Синхронизировать", false), ow = pillWidth("Выйти", false);
+        if (pill("##acEdit", dl, ImVec2(x, y), ImVec2(ew, 42), "Изменить профиль", true, false, &kEdit)) openModal(Modal::Profile);
+        float bx = x + ew + 10;
+        if (bx + sw + 10 + ow > x + w) { bx = x; y += 52; }  // узкое окно — вторая строка
+        if (pill("##acSync", dl, ImVec2(bx, y), ImVec2(sw, 42), "Синхронизировать", false, false, &kSync) && !ac.syncing) app_.cloudSync(true);
+        if (pill("##acOut", dl, ImVec2(bx + sw + 10, y), ImVec2(ow, 42), "Выйти", false, false, &kOut))
+            confirm("Выйти из аккаунта? Музыка на этом устройстве останется, но перестанет синхронизироваться.", [this] { app_.cloudSignOut(); });
+        return;
+    }
+
+    // вход / регистрация
+    int tab = segmented("##acTab", dl, ImVec2(x, y), 36.f, {"Вход", "Регистрация"}, acctCreate_ ? 1 : 0);
+    if (tab >= 0) { acctCreate_ = tab == 1; ac.error.clear(); }
+    y += 56;
+    drawText(dl, F_.regular, 13.f, ImVec2(x, y), white(0.55f),
+             acctCreate_ ? "Новый аккаунт: «Моя музыка» и плейлисты с этого устройства сразу перенесутся в него."
+                         : "Войдите — и музыка с других ваших устройств появится здесь.", w);
+    y += 40;
+    if (modalFirst_) ImGui::SetKeyboardFocusHere();
+    bool e1 = textField("##acMail", ImVec2(x, y), w, acctEmail_, "Почта");
+    y += 54;
+    bool e2 = textField("##acPass", ImVec2(x, y), w, acctPass_, "Пароль (от 6 символов)", false, 0, true);
+    y += 60;
+    bool go = pill("##acGo", dl, ImVec2(x, y), ImVec2(w, 44), ac.busy ? ac.status : (acctCreate_ ? "Создать аккаунт" : "Войти"), true);
+    if ((go || e1 || e2) && !ac.busy) {
+        app_.cloudSignIn(acctEmail_, acctPass_, acctCreate_);
+        acctPass_.clear();  // пароль в памяти не держим
+    }
+    y += 58;
+    if (!ac.error.empty()) {
+        drawText(dl, F_.regular, 13.5f, ImVec2(x, y), IM_COL32(255, 150, 140, 255), ac.error, w);
+        y += 30;
+    }
+    if (!acctCreate_) {
+        Hit h = hit("##acForgot", ImVec2(x, y), ImVec2(measure(F_.regular, 13.5f, "Забыли пароль?").x, 22));
+        drawText(dl, F_.regular, 13.5f, ImVec2(x, y), h.hovered ? pal_.acc : white(0.6f), "Забыли пароль?");
+        if (h.clicked) app_.cloudResetPassword(acctEmail_);
+    }
+}
+
 // ---------- профиль ----------
 
 ImU32 Ui::profileColor(int i) const {
@@ -771,134 +834,28 @@ std::string initialOf(const std::string& name) {
 }
 }  // namespace
 
-namespace {
-// Блёстка: четырёхконечная звёздочка.
-void sparkle(ImDrawList* dl, ImVec2 p, float s, ImU32 col) {
-    const ImVec2 pts[8] = {{p.x, p.y - s},          {p.x + s * 0.3f, p.y - s * 0.3f}, {p.x + s, p.y},          {p.x + s * 0.3f, p.y + s * 0.3f},
-                           {p.x, p.y + s},          {p.x - s * 0.3f, p.y + s * 0.3f}, {p.x - s, p.y},          {p.x - s * 0.3f, p.y - s * 0.3f}};
-    dl->AddConvexPolyFilled(pts, 8, col);
-}
-// Сердечко: два круга и треугольник.
-void heart(ImDrawList* dl, ImVec2 p, float s, ImU32 col) {
-    dl->AddCircleFilled(ImVec2(p.x - s * 0.5f, p.y - s * 0.25f), s * 0.55f, col, 12);
-    dl->AddCircleFilled(ImVec2(p.x + s * 0.5f, p.y - s * 0.25f), s * 0.55f, col, 12);
-    dl->AddTriangleFilled(ImVec2(p.x - s * 1.03f, p.y - s * 0.05f), ImVec2(p.x + s * 1.03f, p.y - s * 0.05f), ImVec2(p.x, p.y + s * 1.05f), col);
-}
-}  // namespace
-
-const char* const Ui::kFrameNames[Profile::kFrameCount] = {"Без рамки", "Кольцо", "Неон", "Двойная", "Пунктир", "Радуга",
-                                                            "Пульс", "Звёзды", "Орбита", "Корона", "Сердечки", "Золото"};
-
-// Рамка вокруг аватарки (кроме «Неона» всё рисуется поверх картинки; свечение «Неона» — под ней, см. drawAvatarOf).
-void Ui::drawFrame(ImDrawList* dl, ImVec2 c, float r, int fr, ImU32 col) {
-    if (fr <= 0) return;
-    constexpr float kTau = 6.2831853f;
-    const float t = calm() ? 0.f : time_;
-    const float th = std::max(1.6f, r * 0.07f);
-    const float R = r + th * 1.4f;
-    const ImU32 gold = IM_COL32(255, 200, 70, 255);
-    switch (fr) {
-        case 1: dl->AddCircle(c, R, col, 48, th); break;
-        case 2: dl->AddCircle(c, R, white(0.9f), 48, th); break;
-        case 3:
-            dl->AddCircle(c, R, col, 48, th);
-            dl->AddCircle(c, R + th * 2.6f, alpha(col, 0.55f), 56, th * 0.8f);
-            break;
-        case 4: {
-            const int n = 14;
-            for (int i = 0; i < n; ++i) {
-                const float a0 = t * 0.6f + static_cast<float>(i) * kTau / n;
-                dl->PathArcTo(c, R + th * 0.4f, a0, a0 + kTau / n * 0.55f, 6);
-                dl->PathStroke(col, ImDrawFlags_None, th * 1.1f);
-            }
-            break;
-        }
-        case 5: {
-            const int n = 36;
-            for (int i = 0; i < n; ++i) {
-                const float a0 = static_cast<float>(i) * kTau / n;
-                const float hue = std::fmod(static_cast<float>(i) * 10.f + t * 60.f, 360.f);
-                dl->PathArcTo(c, R, a0 - 0.02f, a0 + kTau / n + 0.02f, 4);
-                dl->PathStroke(u32(hsl(hue, 0.85f, 0.62f)), ImDrawFlags_None, th * 1.2f);
-            }
-            break;
-        }
-        case 6:
-            dl->AddCircle(c, R, col, 48, th);
-            for (int k = 0; k < 2; ++k) {
-                const float ph = std::fmod(t * 0.7f + static_cast<float>(k) * 0.5f, 1.f);
-                dl->AddCircle(c, R + ph * r * 0.55f, alpha(col, (1.f - ph) * 0.7f), 56, th * 0.8f);
-            }
-            break;
-        case 7:
-            dl->AddCircle(c, R, alpha(col, 0.5f), 48, th * 0.8f);
-            for (int i = 0; i < 4; ++i) {
-                const float a = t * 0.8f + static_cast<float>(i) * kTau / 4.f;
-                const float tw = calm() ? 1.f : 0.75f + 0.25f * std::sin(t * 3.f + static_cast<float>(i) * 1.7f);
-                sparkle(dl, ImVec2(c.x + std::cos(a) * (R + th), c.y + std::sin(a) * (R + th)), r * 0.2f * tw, white(0.95f));
-            }
-            break;
-        case 8: {
-            dl->AddCircle(c, R, alpha(col, 0.4f), 48, th * 0.8f);
-            for (int i = 6; i >= 0; --i) {
-                const float a = t * 1.6f - static_cast<float>(i) * 0.16f;
-                dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * R, c.y + std::sin(a) * R), th * (1.9f - 0.2f * static_cast<float>(i)),
-                                    i == 0 ? white(0.97f) : alpha(col, 0.75f - 0.1f * static_cast<float>(i)), 12);
-            }
-            break;
-        }
-        case 9: {
-            dl->AddCircle(c, R, gold, 48, th * 1.3f);
-            const float w = r * 0.95f, hgt = r * 0.5f, by = c.y - R - th * 0.4f;
-            dl->AddRectFilled(ImVec2(c.x - w / 2, by - hgt * 0.28f), ImVec2(c.x + w / 2, by + th * 0.6f), gold, 2.f);
-            for (int i = 0; i < 3; ++i) {
-                const float cx = c.x - w / 2 + w * static_cast<float>(i) / 2.f;
-                const float half = w / 6.f;
-                dl->AddTriangleFilled(ImVec2(cx - (i == 1 ? half * 1.3f : half * 1.1f), by - hgt * 0.2f), ImVec2(cx + (i == 1 ? half * 1.3f : half * 1.1f), by - hgt * 0.2f),
-                                      ImVec2(cx, by - hgt * (i == 1 ? 1.15f : 0.95f)), gold);
-                dl->AddCircleFilled(ImVec2(cx, by - hgt * (i == 1 ? 1.15f : 0.95f)), th * 0.9f, IM_COL32(255, 240, 180, 255), 8);
-            }
-            break;
-        }
-        case 10:
-            dl->AddCircle(c, R, alpha(col, 0.8f), 48, th);
-            for (int i = 0; i < 6; ++i) {
-                const float a = -1.5708f + static_cast<float>(i) * kTau / 6.f;
-                const float bob = calm() ? 0.f : std::sin(t * 2.f + static_cast<float>(i)) * th * 0.5f;
-                heart(dl, ImVec2(c.x + std::cos(a) * (R + th * 1.6f + bob), c.y + std::sin(a) * (R + th * 1.6f + bob)), r * 0.1f, i % 2 ? col : IM_COL32(255, 120, 150, 255));
-            }
-            break;
-        case 11:
-            dl->AddCircle(c, R, gold, 48, th * 1.9f);
-            dl->AddCircle(c, R - th * 0.5f, IM_COL32(255, 245, 200, 200), 48, th * 0.5f);
-            break;
-        default: break;
-    }
-}
-
-// Аватарка с рамкой: ей же рисуются и друзья (картинку они приносят свою).
-void Ui::drawAvatarOf(ImDrawList* dl, ImVec2 c, float r, ImTextureID tex, const std::string& name, int color, int frame) {
-    const ImU32 col = profileColor(color);
-    if (frame == 2) glow(dl, c, r * 1.75f, col, (calm() ? 0.5f : 0.45f + 0.15f * std::sin(time_ * 2.2f)), 16);
-    if (tex) {
-        dl->AddImageRounded(tex, c - ImVec2(r, r), c + ImVec2(r, r), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, r);
-    } else {
-        dl->AddCircleFilled(c, r, col, 48);
-        std::string init = initialOf(name);
-        float fs = r * 0.95f;
-        ImVec2 is = measure(F_.bold, fs, init);
-        drawText(dl, F_.bold, fs, c - is * 0.5f, IM_COL32(14, 10, 20, 235), init);
-    }
-    drawFrame(dl, c, r, frame, col);
-}
-
 void Ui::drawAvatar(ImDrawList* dl, ImVec2 c, float r) {
     const AccountState& ac = app_.acct;
     if (avatarVer_ != ac.avatarVer) {
         avatarVer_ = ac.avatarVer;
         tex_.setAvatar(ac.prof.avatar);
     }
-    drawAvatarOf(dl, c, r, tex_.avatar(), ac.name(), ac.prof.color, ac.prof.frame);
+    ImU32 col = profileColor(ac.prof.color);
+    int fr = ac.prof.frame;
+    if (fr == 2) glow(dl, c, r * 1.75f, col, (calm() ? 0.5f : 0.45f + 0.15f * std::sin(time_ * 2.2f)), 16);
+    if (ImTextureID t = tex_.avatar()) {
+        dl->AddImageRounded(t, c - ImVec2(r, r), c + ImVec2(r, r), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, r);
+    } else {
+        dl->AddCircleFilled(c, r, col, 48);
+        std::string init = initialOf(ac.name());
+        float fs = r * 0.95f;
+        ImVec2 is = measure(F_.bold, fs, init);
+        drawText(dl, F_.bold, fs, c - is * 0.5f, IM_COL32(14, 10, 20, 235), init);
+    }
+    if (fr >= 1) {
+        float th = std::max(1.6f, r * 0.07f);
+        dl->AddCircle(c, r + th * 1.4f, fr == 2 ? white(0.9f) : col, 48, th);
+    }
 }
 
 void Ui::pickImageFile(std::function<void(std::string)> done) {
@@ -929,6 +886,7 @@ void Ui::pickAvatar() {
 void Ui::modalProfile(ImVec2 o, ImVec2 sz) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     AccountState& ac = app_.acct;
+    if (!ac.loggedIn()) { closeModal(); return; }
     if (modalFirst_) { profName_ = ac.prof.name; profStatus_ = ac.prof.status; }
     float x = o.x + 28, w = sz.x - 56, y = o.y + 24;
     drawText(dl, F_.bold, 24.f, ImVec2(x, y), white(0.98f), "Профиль");
@@ -948,7 +906,7 @@ void Ui::modalProfile(ImVec2 o, ImVec2 sz) {
     if (ah.clicked) pickAvatar();
     float tx = x + 126, tw = w - 126;
     drawText(dl, F_.bold, 20.f, ImVec2(tx, y + 6), white(0.98f), ellipsize(F_.bold, 20.f, ac.name(), tw));
-    drawText(dl, F_.regular, 13.f, ImVec2(tx, y + 34), white(0.45f), ellipsize(F_.regular, 13.f, tr("Хранится на этом устройстве"), tw));
+    drawText(dl, F_.regular, 13.f, ImVec2(tx, y + 34), white(0.45f), ellipsize(F_.regular, 13.f, ac.email, tw));
     static const Icon kPic = Icon::Import;
     float pw = pillWidth("Сменить фото", true);
     if (pill("##pfPick", dl, ImVec2(tx, y + 60), ImVec2(pw, 38), avatarBusy_ ? "Обработка…" : "Сменить фото", true, false, &kPic)) pickAvatar();
@@ -992,31 +950,11 @@ void Ui::modalProfile(ImVec2 o, ImVec2 sz) {
     y += d + 22;
 
     cap("РАМКА АВАТАРКИ");
-    {
-        // сетка рамок: у каждой живой предпросмотр на кружке с вашим цветом
-        const float cell = 66.f;
-        const int cols = std::max(1, static_cast<int>((w + 8.f) / (cell + 8.f)));
-        for (int i = 0; i < Profile::kFrameCount; ++i) {
-            ImGui::PushID(i);
-            const ImVec2 p0(x + static_cast<float>(i % cols) * (cell + 8.f), y + static_cast<float>(i / cols) * (cell + 26.f));
-            Hit h = hit("##pfFr", p0, ImVec2(cell, cell + 20.f));
-            const float hk = hv(h.id, h.hovered);
-            const bool on = ac.prof.frame == i;
-            dl->AddRectFilled(p0, p0 + ImVec2(cell, cell + 20.f), on ? alpha(pal_.acc, 0.16f) : white(0.04f + 0.04f * hk), radius(14.f));
-            if (on) dl->AddRect(p0, p0 + ImVec2(cell, cell + 20.f), alpha(pal_.acc, 0.8f), radius(14.f), 0, 1.5f);
-            const ImVec2 cc(p0.x + cell / 2, p0.y + cell / 2 - 5.f);
-            dl->PushClipRect(p0, p0 + ImVec2(cell, cell + 20.f), true);
-            drawAvatarOf(dl, cc, 17.f, 0, ac.name(), ac.prof.color, i);
-            dl->PopClipRect();
-            const ImVec2 ns = measure(F_.regular, 11.f, kFrameNames[i]);
-            drawText(dl, F_.regular, 11.f, ImVec2(p0.x + cell / 2 - ns.x / 2, p0.y + cell - 5.f), white(on ? 0.95f : 0.55f), kFrameNames[i]);
-            if (h.clicked && !on) { ac.prof.frame = i; app_.profileChanged(); }
-            ImGui::PopID();
-        }
-        y += static_cast<float>((Profile::kFrameCount + cols - 1) / cols) * (cell + 26.f) + 8.f;
-    }
+    int f = segmented("##pfFrame", dl, ImVec2(x, y), 36.f, {"Без рамки", "Кольцо", "Неон"}, ac.prof.frame);
+    if (f >= 0 && f != ac.prof.frame) { ac.prof.frame = f; app_.profileChanged(); }
+    y += 58;
 
-    if (pill("##pfDone", dl, ImVec2(x, y), ImVec2(w, 44), "Готово", true)) closeModal();
+    if (pill("##pfDone", dl, ImVec2(x, y), ImVec2(w, 44), "Готово", true)) openModal(Modal::Account);
 }
 
 }  // namespace mx::ui

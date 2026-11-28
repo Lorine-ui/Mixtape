@@ -12,7 +12,7 @@
 
 namespace mx::ui {
 
-enum class Modal { None, Settings, Import, NewPlaylist, AddToPlaylist, OwnLyrics, TapSync, Teto, Confirm, Profile, More };
+enum class Modal { None, Settings, Import, NewPlaylist, AddToPlaylist, OwnLyrics, TapSync, Teto, Confirm, Account, Profile, More };
 
 // телефон: высота нижних вкладок и компактного мини-плеера
 inline constexpr float kTabH = 62.f, kMiniHMobile = 64.f;
@@ -69,13 +69,8 @@ private:
     void drawCover(ImDrawList* dl, const Track& t, ImVec2 p, float size, float rounding);
     float hueOf(const std::string& s) const;
     // Заголовок и подпись под ним, по центру midY с учётом настоящей высоты текста (она зависит от размера текста).
-    // Начало подписи можно сделать ссылкой на исполнителя: link->text — это имя, id — id кнопки, clicked — нажали ли.
-    struct SubLink { const char* id = nullptr; std::string text; bool clicked = false; };
     void twoLines(ImDrawList* dl, float x, float midY, float maxW, const std::string& title, float fsT, ImU32 colT,
-                  const std::string& sub, float fsS, ImU32 colS, SubLink* link = nullptr);
-    void goArtist(const std::string& names, bool strict = false);   // открыть страницу исполнителя (со следующего кадра)
-    bool artistLabel(const char* id, ImDrawList* dl, ImVec2 pos, const std::string& shown, float fs, ImU32 col, const Track& t);
-    void albumShelf(const char* id, const char* heading, const std::vector<YtmAlbum>& list, bool& open, float w, float& y);
+                  const std::string& sub, float fsS, ImU32 colS);
     void updatePalette();
     const ThemeDef& theme() const;
     bool setting(const char* k, bool def) const { return app_.lib.getBool(k, def); }
@@ -91,9 +86,6 @@ private:
     void shortcuts();
     void toggleFullscreen();
     void pickCustomTeto();    // своя картинка или GIF вместо Тето (копируется в папку данных)
-    void pickCustomBg();      // выбрать свою картинку или GIF для заднего фона
-    void resetBg();           // убрать свой фон
-    bool drawCustomBg(ImDrawList* dl);  // true — свой фон нарисован
     void resetTeto();         // вернуть встроенную Тето  // F11, Alt+Enter или кнопка справа вверху
     void openModal(Modal m);
     void closeModal();
@@ -103,9 +95,6 @@ private:
     void viewHome(ImVec2 size);
     void viewList(ImVec2 size);
     void viewStats(ImVec2 size);   // страница «Статистика»
-    void viewFriends(ImVec2 size); // страница «Друзья»
-    void drawFriendAvatar(ImDrawList* dl, ImVec2 c, float r, const FriendContact& p);
-    std::string frLink_;                                          // поле «ссылка от друга»
     void listHeader(float w, const std::string& title, const std::string& sub, const std::vector<const Track*>& list, float& y);
     void rows(const std::vector<const Track*>& list, float w, bool inPlaylist, const char* ctx);
     void row(const Track& t, const std::vector<std::string>& ids, ImVec2 pos, float w, int index, bool inPlaylist);
@@ -129,12 +118,10 @@ private:
     void modalTap(ImVec2 origin, ImVec2 size);
     void modalTeto(ImVec2 origin, ImVec2 size);
     void modalConfirm(ImVec2 origin, ImVec2 size);
+    void modalAccount(ImVec2 origin, ImVec2 size);
     void modalProfile(ImVec2 origin, ImVec2 size);
     // профиль: аватарка (картинка или первая буква на цвете профиля) с рамкой; r — радиус
     void drawAvatar(ImDrawList* dl, ImVec2 center, float r);
-    void drawAvatarOf(ImDrawList* dl, ImVec2 center, float r, ImTextureID tex, const std::string& name, int color, int frame);
-    void drawFrame(ImDrawList* dl, ImVec2 center, float r, int frame, ImU32 col);
-    static const char* const kFrameNames[Profile::kFrameCount];
     ImU32 profileColor(int i) const;
     void pickImageFile(std::function<void(std::string)> done);  // окно выбора картинки (на телефоне — системное)
     void pickAvatar();
@@ -181,8 +168,6 @@ private:
     ViewKind lastView_ = ViewKind::Home;
     std::string lastPlaylist_;
     double viewStart_ = 0;
-    bool scrollTop_ = false;                  // при смене страницы список прокручивается в начало
-    bool albumsOpen_ = false, singlesOpen_ = false;  // раскрыты ли все альбомы / синглы исполнителя
 
     // поиск, ползунки
     std::string searchBuf_, searchSent_;
@@ -195,6 +180,8 @@ private:
     Modal modal_ = Modal::None;
     int settingsTab_ = 0, importTab_ = 0;
     std::string importLink_, importName_, importList_, newPlName_, ownLyrics_, confirmText_;
+    std::string acctEmail_, acctPass_;  // поля окна «Аккаунт» (пароль стирается сразу после входа)
+    bool acctCreate_ = false;           // вкладка «Регистрация»
     std::string profName_, profStatus_, acName_;  // поля окна «Профиль»
     int avatarVer_ = -1;                // какая версия аватарки загружена в текстуру
     bool avatarBusy_ = false;           // картинка для аватарки обрабатывается
@@ -204,7 +191,6 @@ private:
     bool fullFocus_ = false;
     bool started_ = false;
     bool customTeto_ = false; // вместо Тето — своя картинка
-    bool customBg_ = false;   // на заднем фоне — своя картинка или GIF
     bool mobile_ = false;     // телефон: сенсорный интерфейс
     std::map<ImGuiID, float> scrollVel_;
     ImGuiID dragWin_ = 0;

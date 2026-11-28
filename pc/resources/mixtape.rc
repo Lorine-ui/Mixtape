@@ -6,8 +6,8 @@
 #endif
 
 1 VERSIONINFO
-FILEVERSION 1,2,0,0
-PRODUCTVERSION 1,2,0,0
+FILEVERSION 1,1,0,0
+PRODUCTVERSION 1,1,0,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -15,7 +15,7 @@ BEGIN
     BEGIN
       VALUE "ProductName", "Mixtape"
       VALUE "FileDescription", "Mixtape"
-      VALUE "FileVersion", "1.2.0"
+      VALUE "FileVersion", "1.1.0"
     END
   END
   BLOCK "VarFileInfo"

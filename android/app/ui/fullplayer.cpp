@@ -383,10 +383,7 @@ void Ui::drawFull() {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     // свой фон поверх основного: плотная заливка и два цветных пятна
     dl->AddRectFilled(ImVec2(0, 0), W_, alpha(pal_.bg, 0.985f));
-    if (drawCustomBg(dl)) {  // свой фон и в проигрывателе; поверх него затемнение, чтобы текст читался
-        const float dim = std::max(0.35f, std::clamp(static_cast<float>(app_.lib.getNum("bgDim", 0)), 0.f, 0.85f));
-        dl->AddRectFilled(ImVec2(0, 0), W_, IM_COL32(0, 0, 0, static_cast<int>(255 * dim)));
-    } else if (setting("blobs", true)) drawBlobs(dl, W_, setting("calm", false) ? 0.f : time_, pal_, 0.38f);
+    if (setting("blobs", true)) drawBlobs(dl, W_, setting("calm", false) ? 0.f : time_, pal_, 0.38f);
 
     if (!app_.cur) { ImGui::End(); ImGui::PopStyleVar(3); return; }
     const Track& t = *app_.cur;
@@ -425,7 +422,7 @@ void Ui::drawFull() {
         drawText(dl, F_.bold, 22.f, ImVec2(mid - tsz.x / 2, y0), white(0.98f), tt);
         std::string ar = ellipsize(F_.regular, 15.f, t.artist, cw);
         ImVec2 asz = measure(F_.regular, 15.f, ar);
-        if (artistLabel("##fpArt", dl, ImVec2(mid - asz.x / 2, y0 + 32), ar, 15.f, white(0.6f), t)) { goArtist(t.artist, t.source != "youtube"); openFull(false); }
+        drawText(dl, F_.regular, 15.f, ImVec2(mid - asz.x / 2, y0 + 32), white(0.6f), ar);
         drawProgress(ImVec2(cx0, y0 + 80), cw, true);
         drawTransport(ImVec2(mid, y0 + 142), std::min(1.2f, cw / 330.f));
         // ряд действий: значки и кнопки разной ширины, промежутки делим поровну (в узкой колонке ничего не слипается)
@@ -482,7 +479,7 @@ void Ui::drawFull() {
         drawText(dl, F_.bold, 26.f, ImVec2(leftW / 2 - tsz.x / 2, ty), white(0.98f), tt);
         std::string ar = ellipsize(F_.regular, 16.f, t.artist, tmax);
         ImVec2 asz = measure(F_.regular, 16.f, ar);
-        if (artistLabel("##fpArt2", dl, ImVec2(leftW / 2 - asz.x / 2, ty + 36), ar, 16.f, white(0.6f), t)) { goArtist(t.artist, t.source != "youtube"); openFull(false); }
+        drawText(dl, F_.regular, 16.f, ImVec2(leftW / 2 - asz.x / 2, ty + 36), white(0.6f), ar);
     }
 
     // правая панель

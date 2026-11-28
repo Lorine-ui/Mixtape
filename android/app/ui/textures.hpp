@@ -2,7 +2,6 @@
 // Скачивание и разбор идут в рабочих потоках, видеопамять заполняется в потоке интерфейса.
 #pragma once
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -40,19 +39,10 @@ public:
     float tetoAspect() const { return teto_.h > 0 ? static_cast<float>(teto_.w) / static_cast<float>(teto_.h) : 1.f; }
     bool hasTeto() const { return teto_.ok(); }
 
-    // Свой фон приложения: png, jpg, bmp или GIF. Крупные картинки и длинные GIF уменьшаются, чтобы влезть в видеопамять;
-    // совсем тяжёлые GIF отклоняются. Кадры уходят в видеопамять по несколько штук за кадр (collect), чтобы не зависал интерфейс.
-    void setBackground(const std::string& bytes);  // пусто — убрать
-    ImTextureID background(double timeSec) const;  // 0, пока фон грузится или его нет
-    float backgroundAspect() const { return bg_.h > 0 ? static_cast<float>(bg_.w) / static_cast<float>(bg_.h) : 1.f; }
-
     // Аватарка. makeAvatar (в рабочем потоке): картинка из файла -> квадрат 128x128, RGB в base64; пусто — не картинка.
     static std::string makeAvatar(const std::string& fileBytes);
     void setAvatar(const std::string& base64Rgb);  // пусто — убрать
     ImTextureID avatar() const { return avatar_; }
-    // Аватарка друга: текстура по base64 (вызывающий уничтожает её destroyTexture, когда она больше не нужна).
-    ImTextureID createAvatar(const std::string& base64Rgb);
-    void destroyTexture(ImTextureID id) { if (id) gfx_.destroy(id); }
 
     void collect();  // раз в кадр: освобождает давно не нужные обложки
 
@@ -68,10 +58,6 @@ private:
     Gfx& gfx_;
     std::map<std::string, Entry> covers_;
     ImageSet teto_;
-    ImageSet bg_;
-    struct BgJob;
-    std::shared_ptr<BgJob> bgJob_;  // кадры, ещё не попавшие в видеопамять
-    int bgGen_ = 0;                 // номер последнего запроса: устаревшие результаты отбрасываются
     ImTextureID avatar_ = 0;
     int inflight_ = 0;
     unsigned long long tick_ = 0;

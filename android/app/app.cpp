@@ -104,13 +104,7 @@ bool App::init(std::string* err) {
     std::string st;
     Json sj;
     if (readFile((P(dataDir) / "stats.json").u8string(), st) && Json::tryParse(st, sj)) stats.fromJson(sj);
-    socialLoad();
-    scanLegacy();
-    if (!legacy.empty() && !lib.getBool("legacyAsked", false) && lib.playlists.empty() &&
-        lib.list([](const Track&) { return true; }).empty()) {
-        lib.set("legacyAsked", Json(true));
-        toast("Найдена музыка из старой версии. Настройки \u2192 Данные \u2192 «Перенести»", 9.0);
-    }
+    cloudLoadState();
     for (int i = 0; i < 6; ++i) workers_.emplace_back([this] { workerLoop(); });
     return true;
 }
@@ -125,7 +119,7 @@ void App::saveNow() {
 }
 
 void App::shutdown() {
-    socialSave();
+    if (acct.loggedIn()) cloudSaveState();
     writeFileAtomic((P(dataDir) / "stats.json").u8string(), stats.toJson().dump());
     std::string e;
     lib.set("vol", Json(static_cast<double>(volume)));
@@ -259,6 +253,7 @@ void App::frame() {
         statsDirty_ = true;
     }
     if (statsDirty_ && t - statsSavedAt_ > 30) saveStats();
+    cloudTick();
 }
 
 void App::saveStats() {
@@ -292,70 +287,6 @@ void App::openView(ViewKind v, const std::string& playlistId) {
     viewPlaylist = playlistId;
 }
 
-void App::openArtist(const std::string& names, bool strict) {
-    const std::string name = firstArtist(names);
-    if (name.empty()) return;
-    view = ViewKind::Artist;
-    viewPlaylist = "artist:" + lower(name);  // ключ страницы: при смене исполнителя интерфейс начинает с начала
-    // тот же исполнитель, что уже открыт (или грузится): ничего не перезагружаем
-    if (lower(artist.name) == lower(name) && (artist.loading || artist.error.empty())) return;
-    artist = ArtistView();
-    artist.name = name;
-    artist.loading = true;
-    const int token = ++artistToken_;
-    async([this, name, token, strict] {
-        YtmArtistPage pg;
-        std::string err;
-        try { pg = net_->ytArtist(name, strict); } catch (const std::exception& e) { err = e.what(); }
-        post([this, pg, err, token, strict, name] {
-            if (token != artistToken_) return;
-            artist.loading = false;
-            if (!err.empty()) {
-                artist.error = err;
-                if (strict && view == ViewKind::Artist) {  // на YouTube Music такого нет: показываем обычный поиск по имени
-                    toast("Это не исполнитель YouTube Music, показываю поиск");
-                    search(name);
-                }
-                return;
-            }
-            artist.name = pg.name;
-            artist.cover = pg.cover;
-            artist.songs = pg.songs;
-            artist.albums = pg.albums;
-            artist.singles = pg.singles;
-            for (auto& t : artist.songs) if (!lib.has(t.id)) cache_[t.id] = t;
-        });
-    });
-}
-
-void App::openAlbum(const YtmAlbum& a) {
-    view = ViewKind::Album;
-    viewPlaylist = "album:" + a.id;
-    if (album.id == a.id && (album.loading || album.error.empty())) return;
-    album = AlbumView();
-    album.id = a.id;
-    album.title = a.title;
-    album.cover = a.cover;
-    album.loading = true;
-    const int token = ++albumToken_;
-    async([this, id = a.id, token] {
-        YtmAlbumPage pg;
-        std::string err;
-        try { pg = net_->ytAlbum(id); } catch (const std::exception& e) { err = e.what(); }
-        post([this, pg, err, token] {
-            if (token != albumToken_) return;
-            album.loading = false;
-            if (!err.empty()) { album.error = err; return; }
-            if (!pg.title.empty()) album.title = pg.title;
-            if (!pg.cover.empty()) album.cover = pg.cover;
-            album.artist = pg.artist;
-            album.year = pg.year;
-            album.tracks = pg.tracks;
-            for (auto& t : album.tracks) if (!lib.has(t.id)) cache_[t.id] = t;
-        });
-    });
-}
-
 std::vector<const Track*> App::currentList() const {
     std::vector<const Track*> out;
     switch (view) {
@@ -367,12 +298,6 @@ std::vector<const Track*> App::currentList() const {
         case ViewKind::Offline: return lib.list([](const Track& t) { return t.off && !t.clip; });
         case ViewKind::ForYou:
             for (auto& t : recs) out.push_back(&t);
-            break;
-        case ViewKind::Artist:
-            for (auto& t : artist.songs) out.push_back(&t);
-            break;
-        case ViewKind::Album:
-            for (auto& t : album.tracks) out.push_back(&t);
             break;
         case ViewKind::Playlist:
             for (auto& p : lib.playlists)
@@ -392,13 +317,6 @@ const Track* App::getTrack(const std::string& id) const {
 
 void App::search(const std::string& textIn) {
     std::string q = trim(textIn);
-    if (!q.empty() && parseShareText(q).kind != ShareKind::None) {  // вставили ссылку от друга
-        handleShare(q);
-        view = ViewKind::Friends;
-        viewPlaylist.clear();
-        searching = false;
-        return;
-    }
     view = ViewKind::Search;
     searchQuery = q;
     results.clear();
@@ -1315,89 +1233,6 @@ void App::importRun(std::string name, std::vector<ListItem> items) {
 
 // ---------- данные ----------
 
-// ---------- перенос из старой версии ----------
-
-namespace {
-Json readLibraryJson(const fs::path& dir, std::string* usedName) {
-    for (const char* name : {"library.json", "library.json.bak"}) {
-        std::string text;
-        Json j;
-        if (readFile((dir / name).u8string(), text) && Json::tryParse(text, j) && j.isObject() && j["app"].asStr() == "mixtape") {
-            if (usedName) *usedName = name;
-            return j;
-        }
-    }
-    return Json();
-}
-}  // namespace
-
-void App::scanLegacy() {
-    legacy.clear();
-    if (!platform.legacyDirs) return;
-    std::error_code ec;
-    const fs::path here = fs::weakly_canonical(P(dataDir), ec);
-    std::set<std::string> seen;
-    for (const std::string& d : platform.legacyDirs()) {
-        fs::path dir = P(d);
-        std::error_code e2;
-        fs::path canon = fs::weakly_canonical(dir, e2);
-        if (e2 || canon == here || !fs::is_directory(canon, e2) || !seen.insert(canon.u8string()).second) continue;
-        Json j = readLibraryJson(canon, nullptr);
-        if (!j.isObject()) continue;
-        LegacySource s;
-        s.dir = canon.u8string();
-        s.tracks = static_cast<int>(j["tracks"].size());
-        s.playlists = static_cast<int>(j["playlists"].size());
-        if (s.tracks + s.playlists > 0) legacy.push_back(std::move(s));
-    }
-}
-
-// Переносит «Мою музыку» и плейлисты из папки старой версии; скачанные копии и свои файлы копируются, существующее не трогается.
-void App::importLegacy(const std::string& dirIn) {
-    fs::path dir = P(dirIn);
-    std::string used;
-    Json j = readLibraryJson(dir, &used);
-    if (!j.isObject()) { toast("В этой папке нет библиотеки Mixtape"); return; }
-    std::error_code ec;
-    int copied = 0;
-    if (fs::weakly_canonical(dir, ec) != fs::weakly_canonical(P(dataDir), ec)) {
-        for (const char* sub : {"files", "offline"}) {
-            fs::create_directories(P(dataDir) / sub, ec);
-            for (const auto& en : fs::directory_iterator(dir / sub, ec)) {
-                std::error_code e2;
-                if (!en.is_regular_file(e2)) continue;
-                if (fs::copy_file(en.path(), P(dataDir) / sub / en.path().filename(), fs::copy_options::skip_existing, e2)) ++copied;
-            }
-        }
-    }
-    auto ms = lib.mergeBackup(j, true);
-    if (!ms.ok) { toast("Это не библиотека Mixtape"); return; }
-    touch();
-    scanLegacy();
-    toast("Перенесено: песен " + std::to_string(ms.tracks) + ", плейлистов " + std::to_string(ms.playlists) +
-          (copied ? ", файлов " + std::to_string(copied) : std::string()), 6.0);
-}
-
-// Выбрать library.json (или копию) из старой версии: рядом лежащие «files» и «offline» подтянутся сами.
-void App::importLegacyFile() {
-    if (!platform.pickOpenPath) return;
-    std::string path = platform.pickOpenPath();
-    if (path.empty()) return;
-    fs::path p = P(path);
-    std::string text;
-    Json j;
-    if (!readFile(path, text) || !Json::tryParse(text, j)) { toast("Не удалось прочитать файл"); return; }
-    if (p.filename() == "library.json" || p.filename() == "library.json.bak") { importLegacy(p.parent_path().u8string()); return; }
-    loadBackupJson(j);
-}
-
-void App::loadBackupJson(const Json& j) {
-    auto ms = lib.mergeBackup(j, false);
-    if (!ms.ok) { toast("Это не резервная копия Mixtape"); return; }
-    touch();
-    toast("Добавлено: песен " + std::to_string(ms.tracks) + ", плейлистов " + std::to_string(ms.playlists) + ", текстов " + std::to_string(ms.lyrics));
-}
-
 void App::saveBackup() {
     if (platform.publishFile) {  // телефон: в «Загрузки/Mixtape»
         std::string tmp = (P(dataDir) / "mixtape-backup.json").u8string(), data = lib.toJson().dump(2);
@@ -1417,13 +1252,23 @@ void App::saveBackup() {
 }
 
 void App::loadBackup() {
+    if (platform.pickAsync) {
+        platform.pickAsync("backup", [this](std::vector<std::string> p) { if (!p.empty()) loadBackupFrom(p[0]); });
+        return;
+    }
     if (!platform.pickOpenPath) return;
-    std::string path = platform.pickOpenPath();
+    loadBackupFrom(platform.pickOpenPath());
+}
+
+void App::loadBackupFrom(const std::string& path) {
     if (path.empty()) return;
     std::string text, err;
     Json j;
     if (!readFile(path, text) || !Json::tryParse(text, j, &err)) { toast("Не удалось прочитать файл копии"); return; }
-    loadBackupJson(j);
+    auto ms = lib.mergeBackup(j);
+    if (!ms.ok) { toast("Это не резервная копия Mixtape"); return; }
+    touch();
+    toast("Добавлено: песен " + std::to_string(ms.tracks) + ", плейлистов " + std::to_string(ms.playlists) + ", текстов " + std::to_string(ms.lyrics));
 }
 
 void App::tetoEgg(bool& firstTime) {

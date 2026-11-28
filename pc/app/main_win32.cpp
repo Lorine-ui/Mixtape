@@ -18,16 +18,12 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
-#include <ctime>
 #include <cstdlib>
 #include <list>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "app.hpp"
-#include "discord_config.hpp"
-#include "discord_win32.hpp"
 #include "ui/imgui_inc.hpp"  // до backends: включает операторы ImVec2
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
@@ -514,47 +510,6 @@ mx::AudioBlob ytDlpFetch(const std::string& dataDir, const std::string& videoId,
     throw std::runtime_error("yt-dlp: " + (tail.empty() ? std::string("не получилось") : tail));
 }
 
-// ---------- Discord: «Слушает Mixtape», название и минута ----------
-// Показываем статус, только пока песня играет; на паузе и когда ничего не играет он убирается. Время начала считается
-// от текущей позиции, поэтому Discord сам рисует полосу и бежит минута. Перемотка (начало сдвинулось больше, чем на 2 секунды)
-// и новая песня отправляются заново, но не чаще раза в полторы секунды: у Discord есть лимит на частоту обновлений.
-struct PresenceTracker {
-    std::string id;
-    long long start = 0;
-    double lastSend = -100;
-    bool active = false;
-};
-
-void updateDiscord(mx::DiscordPresence* d, mx::App& app, PresenceTracker& st) {
-    if (!d) return;
-    if (!(app.lib.getBool("discord", true) && app.cur && app.isPlaying())) {
-        if (st.active) {
-            d->clear();
-            st.active = false;
-            st.id.clear();
-        }
-        return;
-    }
-    const mx::Track& t = *app.cur;
-    const long long start = static_cast<long long>(std::time(nullptr)) - static_cast<long long>(app.position());
-    const double now = app.now();
-    if (st.active && st.id == t.id && (std::llabs(start - st.start) <= 2 || now - st.lastSend < 1.5)) return;
-    mx::DiscordActivity a;
-    a.title = t.title;
-    a.artist = t.artist.empty() ? std::string(mx::sourceLabel(t.source)) : t.artist;
-    a.coverUrl = t.cover;
-    a.startSec = start;
-    const double len = app.visibleLength();
-    a.endSec = len > 0 ? start + static_cast<long long>(len) : 0;
-    a.buttonLabel = mx::kDiscordButtonLabel;
-    a.buttonUrl = mx::kDiscordButtonUrl;
-    d->set(a);
-    st.active = true;
-    st.id = t.id;
-    st.start = start;
-    st.lastSend = now;
-}
-
 LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return true;
     switch (msg) {
@@ -678,34 +633,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         auto r = pickFiles(hwnd, false, L"Копия Mixtape (*.json)\0*.json\0Все файлы\0*.*\0", false, L"");
         return r.empty() ? std::string() : r[0];
     };
-    pf.legacyDirs = [] {
-        // рядом с .exe, в LocalAppData и в любых папках «Mixtape…» среди данных программ (старые версии могли называться иначе)
-        std::vector<std::string> out;
-        wchar_t exe[MAX_PATH]{};
-        GetModuleFileNameW(nullptr, exe, MAX_PATH);
-        std::wstring dir = exe;
-        dir = dir.substr(0, dir.find_last_of(L"\\/"));
-        out.push_back(toUtf8(dir.c_str()));
-        out.push_back(toUtf8(dir.c_str()) + "\\data");
-        for (const KNOWNFOLDERID* id : {&FOLDERID_RoamingAppData, &FOLDERID_LocalAppData, &FOLDERID_Documents}) {
-            PWSTR p = nullptr;
-            if (FAILED(SHGetKnownFolderPath(*id, 0, nullptr, &p)) || !p) continue;
-            std::wstring base = p;
-            CoTaskMemFree(p);
-            WIN32_FIND_DATAW fd;
-            HANDLE h = FindFirstFileW((base + L"\\*").c_str(), &fd);
-            if (h == INVALID_HANDLE_VALUE) continue;
-            do {
-                std::wstring n = fd.cFileName;
-                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || n.size() < 7) continue;
-                std::wstring low = n;
-                for (auto& c : low) c = static_cast<wchar_t>(towlower(c));
-                if (low.compare(0, 7, L"mixtape") == 0) out.push_back(toUtf8((base + L"\\" + n).c_str()));
-            } while (FindNextFileW(h, &fd));
-            FindClose(h);
-        }
-        return out;
-    };
     pf.pickSaveAudio = [hwnd](const std::string& def) {
         auto r = pickFiles(hwnd, false, L"Песня\0*.mp3;*.m4a;*.flac;*.ogg;*.wav;*.aac\0Все файлы\0*.*\0", true, toWide(def));
         return r.empty() ? std::string() : r[0];
@@ -752,7 +679,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     pf.setTitleBarColor = [hwnd](int r, int g, int b) { setTitleBarColor(hwnd, r, g, b); };
     setTitleBarColor(hwnd, 9, 8, 14);  // сразу тёмный, ещё до первого кадра — без белой вспышки
 
-    pf.hasDiscord = mx::kDiscordAppId[0] != '\0';
     mx::App app(appDataDir(), pf);
     g_app = &app;
     std::string err;
@@ -764,10 +690,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     mx::ui::Ui ui(app, gfx, fonts);
     g_ui = &ui;
     ui.init();
-
-    std::unique_ptr<mx::DiscordPresence> discord;
-    if (pf.hasDiscord) discord = std::make_unique<mx::DiscordPresence>(mx::kDiscordAppId);
-    PresenceTracker presence;
 
     ShowWindow(hwnd, show);
     if (app.lib.getBool("fullscreen", false)) setFullscreen(hwnd, true);  // как закрыли, так и открываем  // как закрыли, так и открываем
@@ -796,7 +718,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         if (g_minimized) {
             // свёрнуто: рисовать нечего, но музыка, очередь и таймеры продолжают работать
             app.frame();
-            updateDiscord(discord.get(), app, presence);
             Sleep(40);
             continue;
         }
@@ -812,7 +733,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         }
         ImGui::NewFrame();
         app.frame();
-        updateDiscord(discord.get(), app, presence);
         ui.frame(dt, io.DisplaySize);
         ImGui::Render();
         if (s != 1.f) {
@@ -829,7 +749,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         g_dx.sc->Present(1, 0);
     }
-    discord.reset();
     app.shutdown();
     std::_Exit(0);
 }

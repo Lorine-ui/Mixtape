@@ -29,11 +29,9 @@ void Ui::drawContent(ImVec2 pos, ImVec2 size) {
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, white(0.3f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0, 0, 0, 0));
     ImGui::BeginChild("##content", ImVec2(size.x, size.y - top), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
-    if (scrollTop_) { ImGui::SetScrollY(0.f); scrollTop_ = false; }
     switch (app_.view) {
         case ViewKind::Home: viewHome(ImVec2(size.x, size.y - top)); break;
         case ViewKind::Stats: viewStats(ImVec2(size.x, size.y - top)); break;
-        case ViewKind::Friends: viewFriends(ImVec2(size.x, size.y - top)); break;
         default: viewList(ImVec2(size.x, size.y - top)); break;
     }
     ImGui::EndChild();
@@ -176,10 +174,7 @@ void Ui::row(const Track& t, const std::vector<std::string>& ids, ImVec2 p, floa
     ImU32 tc = isCur ? pal_.acc : white(0.96f * a);
     std::string sub = t.artist;
     if (off) sub += (sub.empty() ? "" : " · ") + std::string("скачано");
-    SubLink artLink{"##art", t.artist};
-    const bool canLink = !t.artist.empty() && t.source != "local" && !t.clip;
-    twoLines(dl, textX, mid, textW, t.title, fsT, tc, sub, fsS, white(0.52f * a), canLink ? &artLink : nullptr);
-    if (canLink && artLink.clicked) goArtist(t.artist, t.source != "youtube");
+    twoLines(dl, textX, mid, textW, t.title, fsT, tc, sub, fsS, white(0.52f * a));
 
     if (h.clicked) {
         if (isCur) app_.togglePause();
@@ -201,7 +196,7 @@ void Ui::listHeader(float w, const std::string& title, const std::string& sub, c
     if (tile) {
         Icon ic = app_.view == ViewKind::Library ? Icon::HeartFilled : app_.view == ViewKind::Clips ? Icon::Scissors
                 : app_.view == ViewKind::Offline ? Icon::Download : app_.view == ViewKind::ForYou ? Icon::Sparkle
-                : app_.view == ViewKind::Stats ? Icon::Chart : app_.view == ViewKind::Artist ? Icon::User : Icon::Note;
+                : app_.view == ViewKind::Stats ? Icon::Chart : Icon::Note;
         float hue = app_.view == ViewKind::Playlist ? hueOf(title) : pal_.hue;
         ImVec2 t0(x, yy), t1(x + ts, yy + ts);
         softShadow(dl, t0, t1, radius(18.f), 18.f, 0.5f * a);
@@ -209,16 +204,12 @@ void Ui::listHeader(float w, const std::string& title, const std::string& sub, c
         dl->PushClipRect(t0, t1, true);
         glow(dl, t0 + ImVec2(ts * 0.38f, ts * 0.36f), ts * 0.55f, u32(hsl(hue + 30.f, 0.8f, 0.62f)), 0.55f * a, 24);
         dl->PopClipRect();
-        const std::string coverUrl = app_.view == ViewKind::Artist ? app_.artist.cover : app_.view == ViewKind::Album ? app_.album.cover : std::string();
-        const ImTextureID ctex = coverUrl.empty() ? ImTextureID(0) : tex_.cover(coverUrl);
-        if (ctex) dl->AddImageRounded(ctex, t0, t1, ImVec2(0, 0), ImVec2(1, 1), white(a), radius(18.f));
-        else icon(dl, ic, ImVec2(x + ts / 2, yy + ts / 2), ts * 0.38f, white(0.95f * a));
+        icon(dl, ic, ImVec2(x + ts / 2, yy + ts / 2), ts * 0.38f, white(0.95f * a));
         tx = x + ts + 24.f;
     }
     const char* kicker = app_.view == ViewKind::Library ? "КОЛЛЕКЦИЯ" : app_.view == ViewKind::Playlist ? "ПЛЕЙЛИСТ"
                        : app_.view == ViewKind::Clips ? "ФРАГМЕНТЫ" : app_.view == ViewKind::Offline ? "БЕЗ ИНТЕРНЕТА"
-                       : app_.view == ViewKind::ForYou ? "ПОДБОРКА" : app_.view == ViewKind::Stats ? "ВАША МУЗЫКА"
-                       : app_.view == ViewKind::Artist ? "ИСПОЛНИТЕЛЬ" : app_.view == ViewKind::Album ? "АЛЬБОМ" : "ПОИСК";
+                       : app_.view == ViewKind::ForYou ? "ПОДБОРКА" : app_.view == ViewKind::Stats ? "ВАША МУЗЫКА" : "ПОИСК";
     float textW = w - kPad - (tx - o.x);
     float ky = tile ? yy + ts / 2 - 50.f : yy;
     drawText(dl, F_.bold, 12.f, ImVec2(tx, ky), alpha(pal_.acc, 0.95f * a), kicker);
@@ -270,12 +261,6 @@ void Ui::listHeader(float w, const std::string& title, const std::string& sub, c
             confirm("Удалить все скачанные копии? Песни останутся в «Моей музыке», но без интернета играть не будут.",
                     [this] { app_.dropAllOffline(); });
     }
-    if (app_.view == ViewKind::Album && !app_.album.artist.empty() && btn("##toArtist", "К исполнителю", false, false, Icon::User))
-        goArtist(app_.album.artist);
-    if (app_.view == ViewKind::Artist && !app_.artist.error.empty() && btn("##artSearch", "Искать в других источниках", true, false, Icon::Search)) {
-        const std::string n = app_.artist.name;
-        app_.search(n);
-    }
     if (app_.view == ViewKind::Playlist) {
         if (btn("##delPl", "Удалить плейлист", false, false, Icon::Trash)) {
             std::string id = app_.viewPlaylist, name = title;
@@ -288,53 +273,6 @@ void Ui::listHeader(float w, const std::string& title, const std::string& sub, c
     }
     ImGui::PopID();
     y += headH + (any ? 22.f + bh + 26.f : 30.f);
-}
-
-// Сетка альбомов (или синглов): по умолчанию один ряд, «Показать все» раскрывает остальные.
-void Ui::albumShelf(const char* id, const char* heading, const std::vector<YtmAlbum>& list, bool& open, float w, float& y) {
-    if (list.empty()) return;
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 o = ImGui::GetWindowPos();
-    const float gap = 16.f, avail = w - kPad * 2.f;
-    const int cols = std::max(2, static_cast<int>((avail + gap) / (160.f + gap)));
-    const float cw = (avail - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols);
-    const float cardH = cw + 46.f;
-    const int total = static_cast<int>(list.size());
-    const int shown = open ? total : std::min(total, cols);
-    ImGui::PushID(id);
-    const float hy = o.y + y - ImGui::GetScrollY();
-    drawText(dl, F_.bold, 20.f, ImVec2(o.x + kPad, hy), white(0.97f), heading);
-    const ImVec2 hs = measure(F_.bold, 20.f, heading);
-    drawText(dl, F_.regular, 14.f, ImVec2(o.x + kPad + hs.x + 10.f, hy + hs.y - 17.f), white(0.45f), std::to_string(total));
-    if (total > cols) {
-        const char* lab = open ? "Свернуть" : "Показать все";
-        const float bw = pillWidth(lab, false);
-        if (pill("##more", dl, ImVec2(o.x + w - kPad - bw, hy - 7.f), ImVec2(bw, 34.f), lab)) open = !open;
-    }
-    y += 44.f;
-    for (int i = 0; i < shown; ++i) {
-        const int r = i / cols, c = i % cols;
-        const ImVec2 p(o.x + kPad + static_cast<float>(c) * (cw + gap),
-                       o.y + y - ImGui::GetScrollY() + static_cast<float>(r) * (cardH + 8.f));
-        if (!ImGui::IsRectVisible(p, p + ImVec2(cw, cardH))) continue;  // обложки грузятся только у видимых карточек
-        const YtmAlbum& al = list[static_cast<std::size_t>(i)];
-        ImGui::PushID(i);
-        Hit h = hit("##al", p, ImVec2(cw, cardH));
-        const float k = hv(h.id, h.hovered);
-        if (k > 0.01f) dl->AddRectFilled(p - ImVec2(6.f, 6.f), p + ImVec2(cw + 6.f, cardH + 2.f), white(0.06f * k), radius(14.f));
-        Track tr;
-        tr.title = al.title;
-        tr.cover = al.cover;
-        drawCover(dl, tr, p, cw, radius(12.f));
-        drawText(dl, F_.bold, 13.5f, ImVec2(p.x, p.y + cw + 8.f), white(0.95f), ellipsize(F_.bold, 13.5f, al.title, cw));
-        drawText(dl, F_.regular, 12.f, ImVec2(p.x, p.y + cw + 27.f), white(0.5f), ellipsize(F_.regular, 12.f, al.sub, cw));
-        if (h.hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        if (h.clicked) app_.openAlbum(al);
-        ImGui::PopID();
-    }
-    const int rowsN = (shown + cols - 1) / cols;
-    y += static_cast<float>(rowsN) * (cardH + 8.f) + 14.f;
-    ImGui::PopID();
 }
 
 void Ui::viewList(ImVec2 size) {
@@ -390,24 +328,6 @@ void Ui::viewList(ImVec2 size) {
             empty = "Плейлист пуст. Нажмите «+» у любой песни, чтобы добавить её сюда.";
             break;
         }
-        case ViewKind::Artist: {
-            const auto& A = app_.artist;
-            title = A.name;
-            sub = A.loading ? std::string("Загружаю…") : A.error.empty() ? songsCount(list.size()) : std::string();
-            empty = A.loading ? "" : !A.error.empty() ? A.error : "У исполнителя нет песен на YouTube Music.";
-            break;
-        }
-        case ViewKind::Album: {
-            const auto& B = app_.album;
-            title = B.title;
-            if (B.loading) sub = "Загружаю…";
-            else {
-                if (!B.artist.empty()) sub = B.artist + (B.year.empty() ? "" : " · " + B.year) + " · ";
-                sub += songsCount(list.size());
-            }
-            empty = B.loading ? "" : !B.error.empty() ? B.error : "В альбоме нет доступных песен.";
-            break;
-        }
         default: break;
     }
     listHeader(w, title, sub, list, y);
@@ -439,19 +359,10 @@ void Ui::viewList(ImVec2 size) {
         }
         y += 46.f;
     }
-    if (app_.view == ViewKind::Artist && !app_.artist.loading && app_.artist.error.empty()) {
-        albumShelf("alb", "Альбомы", app_.artist.albums, albumsOpen_, w, y);
-        albumShelf("sin", "Синглы и EP", app_.artist.singles, singlesOpen_, w, y);
-        if (!list.empty()) {
-            drawText(dl, F_.bold, 20.f, ImVec2(o.x + kPad, o.y + y - ImGui::GetScrollY()), white(0.97f), "Песни");
-            y += 44.f;
-        }
-    }
     ImGui::SetCursorPos(ImVec2(0, y));
 
-    if (app_.view == ViewKind::Search || app_.view == ViewKind::Artist || app_.view == ViewKind::Album) {
-        if ((app_.view == ViewKind::Search && app_.searching) || (app_.view == ViewKind::Artist && app_.artist.loading) ||
-            (app_.view == ViewKind::Album && app_.album.loading)) {
+    if (app_.view == ViewKind::Search) {
+        if (app_.searching) {
             // бегущая точка вместо «колёсика»
             ImVec2 c(o.x + kPad + 14, o.y + y - ImGui::GetScrollY() + 26);
             for (int i = 0; i < 3; ++i) {
@@ -503,7 +414,7 @@ void Ui::viewHome(ImVec2 size) {
         dl->AddRect(b0, b1, alpha(pal_.acc, 0.25f * a), radius(24.f));
         float tx = b0.x + 32.f, lift = (1.f - a) * 12.f;
         drawText(dl, F_.bold, 13.f, ImVec2(tx, b0.y + 30.f + lift), white(0.75f * a),
-                 !app_.acct.prof.name.empty() ? std::string(hello) + ", " + app_.acct.name() : std::string(hello));
+                 app_.acct.loggedIn() ? std::string(hello) + ", " + app_.acct.name() : std::string(hello));
         drawText(dl, F_.bold, 40.f, ImVec2(tx, b0.y + 50.f + lift), white(0.99f * a), "Что послушаем?");
         drawText(dl, F_.regular, 15.f, ImVec2(tx, b0.y + 58.f + measure(F_.bold, 40.f, "Ag").y + lift), white(0.72f * a),
                  ellipsize(F_.regular, 15.f, "Ищите по названию — сразу в Audius, SoundCloud, Internet Archive и YouTube Music.", b1.x - tx - 32.f));
@@ -604,157 +515,6 @@ std::string dayLabel(int back, bool full) {
 }  // namespace
 
 // Сколько и что вы слушаете: крупные цифры, неделя по дням, самые слушаемые песни и исполнители.
-void Ui::drawFriendAvatar(ImDrawList* dl, ImVec2 c, float r, const FriendContact& p) {
-    drawAvatarOf(dl, c, r, 0, p.name, p.color, p.frame);
-}
-
-// Друзья: моя ссылка, вставка чужой ссылки, рекомендации, список.
-void Ui::viewFriends(ImVec2 size) {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 o = ImGui::GetWindowPos();
-    const float w = contentWidth(size.x), x = o.x + kPad, inner = w - kPad * 2;
-    float y = 8.f;
-    auto sy = [&] { return o.y + y - ImGui::GetScrollY(); };
-    const float a = calm() ? 1.f : easeOut(static_cast<float>((app_.now() - viewStart_) / 0.5));
-    const float tfs = false ? 28.f : 36.f;
-    drawText(dl, F_.bold, 12.f, ImVec2(x, sy()), alpha(pal_.acc, 0.95f * a), "ДРУЗЬЯ");
-    drawText(dl, F_.bold, tfs, ImVec2(x, sy() + 20.f), white(0.98f * a), "Друзья");
-    y += 20.f + measure(F_.bold, tfs, "Ag").y + 8.f;
-    drawText(dl, F_.regular, 14.f, ImVec2(x, sy()), white(0.6f * a), "Приглашайте друзей ссылкой и рекомендуйте друг другу песни", inner);
-    y += 44.f;
-    const bool narrow = inner < 560.f;
-
-    // моя ссылка
-    {
-        const float ch = narrow ? 168.f : 128.f;
-        const ImVec2 c0(x, sy()), c1(x + inner, sy() + ch);
-        dl->AddRectFilled(c0, c1, white(0.05f * a), radius(18.f));
-        dl->AddRect(c0, c1, white(0.08f * a), radius(18.f));
-        drawText(dl, F_.bold, 12.f, ImVec2(x + 20.f, c0.y + 16.f), white(0.5f * a), "ВАША ССЫЛКА-ПРИГЛАШЕНИЕ");
-        drawText(dl, F_.regular, 14.f, ImVec2(x + 20.f, c0.y + 40.f), white(0.75f * a),
-                 "Отправьте её другу в любой мессенджер. Он вставит её сюда, и вы появитесь в списках друг у друга.", inner - 40.f);
-        const float bw = pillWidth("Скопировать ссылку", false);
-        if (pill("##frCopy", dl, ImVec2(x + 20.f, c1.y - 58.f), ImVec2(bw, 40), "Скопировать ссылку", true)) {
-            if (app_.platform.copyText) app_.platform.copyText(app_.myFriendLink());
-            app_.toast("Ссылка скопирована: отправьте её другу");
-        }
-        if (app_.acct.prof.name.empty()) {
-            const float pw = pillWidth("Указать ник", false);
-            if (pill("##frNick", dl, ImVec2(x + 20.f + bw + 10.f, c1.y - 58.f), ImVec2(pw, 40), "Указать ник")) openModal(Modal::Profile);
-        }
-        y += ch + 20.f;
-    }
-
-    // вставить ссылку от друга
-    drawText(dl, F_.bold, 12.f, ImVec2(x, sy()), white(0.5f * a), "ВСТАВЬТЕ ССЫЛКУ ОТ ДРУГА");
-    y += 22.f;
-    {
-        const float bw = pillWidth("Добавить", false);
-        const bool enter = textField("##frLink", ImVec2(x, sy()), inner - bw - 12.f, frLink_, "Ссылка от друга");
-        const bool click = pill("##frAdd", dl, ImVec2(x + inner - bw, sy()), ImVec2(bw, 40), "Добавить", true);
-        if ((enter || click) && !trim(frLink_).empty()) {
-            if (!app_.handleShare(frLink_)) app_.toast("В этом тексте нет ссылки Mixtape");
-            frLink_.clear();
-        }
-        y += 62.f;
-    }
-
-    struct Btn { const char* id; const char* label; bool primary; };
-    // Кнопки строки: справа (широкий экран) или второй строкой под текстом (узкий). Возвращает номер нажатой или -1.
-    auto rowButtons = [&](float top, std::initializer_list<Btn> bs) -> int {
-        int clicked = -1, i = 0;
-        float total = 0;
-        for (const Btn& b : bs) total += pillWidth(b.label, false) + 8.f;
-        float bx = narrow ? x + 64.f : x + inner + 12.f - total + 8.f;
-        const float by = narrow ? top + 60.f : top + 11.f;
-        for (const Btn& b : bs) {
-            const float bw = pillWidth(b.label, false);
-            if (pill(b.id, dl, ImVec2(bx, by), ImVec2(bw, 38), b.label, b.primary)) clicked = i;
-            bx += bw + 8.f;
-            ++i;
-        }
-        return clicked;
-    };
-    auto textRoom = [&](std::initializer_list<Btn> bs) {
-        if (narrow) return inner - 64.f;
-        float total = 0;
-        for (const Btn& b : bs) total += pillWidth(b.label, false) + 8.f;
-        return std::max(80.f, inner - 64.f - total - 12.f);
-    };
-    const float rowH = narrow ? 112.f : 66.f;
-    auto section = [&](const char* title, std::size_t n) {
-        drawText(dl, F_.bold, 20.f, ImVec2(x, sy()), white(0.97f * a), title);
-        if (n) drawText(dl, F_.regular, 14.f, ImVec2(x + measure(F_.bold, 20.f, title).x + 10.f, sy() + 4.f), white(0.45f), std::to_string(n));
-        y += 40.f;
-    };
-    auto rowBg = [&](float top) {
-        dl->AddRectFilled(ImVec2(x - 12.f, top), ImVec2(x + inner + 12.f, top + rowH - 6.f), white(0.04f * a), radius(14.f));
-    };
-
-    // рекомендации
-    if (!app_.inbox.empty()) {
-        section("Вам рекомендуют", app_.inbox.size());
-        ImGui::PushID("recs");
-        for (std::size_t i = 0; i < app_.inbox.size(); ++i) {
-            const Recommendation r = app_.inbox[i];
-            ImGui::PushID(static_cast<int>(i));
-            const float top = sy();
-            rowBg(top);
-            drawCover(dl, r.track, ImVec2(x, top + 6.f), 50.f, radius(10.f));
-            std::string sub = r.fromName + " рекомендует" + (r.note.empty() ? std::string() : " · «" + r.note + "»");
-            const std::initializer_list<Btn> bs = {{"##rcPlay", "Слушать", true}, {"##rcSave", "В мою музыку", false}, {"##rcHide", "Скрыть", false}};
-            twoLines(dl, x + 64.f, top + 31.f, textRoom(bs), r.track.title, 15.f, white(0.96f * a), sub, 12.5f, alpha(pal_.acc, 0.9f * a));
-            const int c = rowButtons(top, bs);
-            ImGui::PopID();
-            y += rowH;
-            if (c == 0) { app_.recPlay(r); break; }
-            if (c == 1) { app_.recSave(r); break; }
-            if (c == 2) { app_.recDismiss(r.key); break; }
-        }
-        ImGui::PopID();
-        y += 10.f;
-    }
-
-    // друзья
-    section("Друзья", app_.friendList.size());
-    if (app_.friendList.empty()) {
-        drawText(dl, F_.regular, 14.f, ImVec2(x, sy()), white(0.5f), "Пока никого. Отправьте другу свою ссылку или вставьте его ссылку выше.", inner);
-        y += 44.f;
-    }
-    {
-        ImGui::PushID("fr");
-        const bool canSend = app_.cur && app_.cur->source != "local" && !app_.cur->clip;
-        for (std::size_t i = 0; i < app_.friendList.size(); ++i) {
-            const FriendContact p = app_.friendList[i];
-            ImGui::PushID(static_cast<int>(i));
-            const float top = sy();
-            rowBg(top);
-            drawFriendAvatar(dl, ImVec2(x + 26.f, top + 30.f), 22.f, p);
-            const std::initializer_list<Btn> bsSend = {{"##frSend", "Отправить песню", false}, {"##frDel", "Убрать", false}};
-            const std::initializer_list<Btn> bsDel = {{"##frDel", "Убрать", false}};
-            const auto& bs = canSend ? bsSend : bsDel;
-            twoLines(dl, x + 64.f, top + 30.f, textRoom(bs), p.name, 15.f, white(0.96f * a), p.status.empty() ? std::string("друг") : p.status, 12.5f, white(0.55f * a));
-            const int c = rowButtons(top, bs);
-            const int del = canSend ? 1 : 0;
-            if (canSend && c == 0) {
-                app_.shareSong(*app_.cur);
-            } else if (c == del) {
-                const std::string id = p.id, name = p.name;
-                confirm("Убрать «" + name + "» из друзей?", [this, id] { app_.friendRemove(id); });
-            }
-            ImGui::PopID();
-            y += rowH;
-        }
-        ImGui::PopID();
-        if (canSend && !app_.friendList.empty()) {
-            drawText(dl, F_.regular, 12.5f, ImVec2(x, sy()), white(0.45f), "«Отправить песню» копирует ссылку на то, что играет сейчас: вставьте её другу в чат. Для других песен: «+» у песни, «Порекомендовать другу».", inner);
-            y += 44.f;
-        }
-    }
-    ImGui::SetCursorPos(ImVec2(0, y));
-    ImGui::Dummy(ImVec2(1, 130));
-}
-
 void Ui::viewStats(ImVec2 size) {
     const ListenStats& st = app_.stats;
     auto top = app_.topTracks(10);
@@ -847,13 +607,8 @@ void Ui::viewStats(ImVec2 size) {
         std::string meta = timesText(stTop[i]->plays) + " · " + hoursText(stTop[i]->sec);
         ImVec2 ms = measure(F_.regular, 13.f, meta);
         drawText(dl, F_.regular, 13.f, ImVec2(x + inner - ms.x, p0.y + 30 - ms.y / 2), white(0.6f), meta);
-        SubLink stLink{"##stArt", t.artist};
-        const bool stCan = !t.artist.empty() && t.source != "local";
-        ImGui::PushID(static_cast<int>(i));
         twoLines(dl, x + 92, p0.y + 30, inner - 92 - ms.x - 24, t.title, 15.f, isCur ? pal_.acc : white(0.96f),
-                 t.artist, 13.f, white(0.52f), stCan ? &stLink : nullptr);
-        ImGui::PopID();
-        if (stCan && stLink.clicked) goArtist(t.artist, t.source != "youtube");
+                 t.artist, 13.f, white(0.52f));
         if (h.clicked) {
             if (isCur) app_.togglePause();
             else app_.playFrom(ids, t.id);
@@ -871,15 +626,6 @@ void Ui::viewStats(ImVec2 size) {
         double amax = std::max(1.0, artists.front().sec);
         for (auto& ar : artists) {
             float ly = sy();
-            ImGui::PushID(ar.name.c_str());
-            Hit ah = hit("##arRow", ImVec2(x - 8.f, ly - 2.f), ImVec2(inner + 16.f, 32.f));
-            ImGui::PopID();
-            if (ah.hovered) {
-                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                dl->AddRectFilled(ImVec2(x - 8.f, ly - 2.f), ImVec2(x + inner + 8.f, ly + 30.f), white(0.05f), radius(10.f));
-                tip("Песни и альбомы исполнителя");
-            }
-            if (ah.clicked) goArtist(ar.name, true);
             std::string v = hoursText(ar.sec);
             ImVec2 vs = measure(F_.regular, 13.f, v);
             float nameW = std::min(260.f, inner * 0.38f);
